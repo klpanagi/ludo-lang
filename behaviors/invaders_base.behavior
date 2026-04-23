@@ -1,0 +1,35 @@
+ruleset InvadersBase {
+  tiles {
+    tile wall         symbol: "#"  solid: true   color: "#111111"
+    tile empty        symbol: "."  solid: false  color: "#000000"
+    tile player_spawn symbol: "P"  solid: false  color: "#000000"  tag: player_spawn
+    tile alien_spawn  symbol: "A"  solid: false  color: "#000000"  tag: enemy_spawn
+    tile barrier_top  symbol: "^"  solid: true   color: "#00ff41"
+    tile barrier_mid  symbol: "-"  solid: true   color: "#00cc33"
+  }
+  actors {
+    enemy "Invader" {
+      spawn: tile "A"
+      color: "#00ffff"
+      speed: 1.5
+      points: 100
+      behavior: formation
+    }
+    projectile "Laser" {
+      speed: 16
+      color: "#00ff41"
+      direction: from_player
+      on_hit_wall: destroy
+      on_hit_enemy: destroy_all
+    }
+  }
+  rules {
+    win: all_enemies_defeated
+    lose: lives_depleted
+    on_collision player enemy: lose_life
+  }
+  ui {
+    score: top_right
+    lives: top_left
+  }
+}

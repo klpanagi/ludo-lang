@@ -1,0 +1,45 @@
+import "../behaviors/invaders_base.behavior"
+
+game "Retro Invaders" {
+  type: invaders
+  canvas: 448x512
+  fps: 60
+  background: "#000011"
+}
+
+use ruleset InvadersBase
+
+map {
+  cell_size: 32
+  layout: [
+    "##############",
+    "#............#",
+    "#.AAAAAAAAAA.#",
+    "#.AAAAAAAAAA.#",
+    "#.AAAAAAAAAA.#",
+    "#.AAAAAAAAAA.#",
+    "#............#",
+    "#............#",
+    "#............#",
+    "#.^^-.^^-.^^.#",
+    "#............#",
+    "#.....P......#",
+    "#............#",
+    "##############"
+  ]
+}
+
+player {
+  name: "Ace"
+  spawn: tile "P"
+  shape: square
+  color: "#facc15"
+  speed: 9
+  lives: 3
+  controls: arrows | wasd
+  shoot {
+    projectile: Laser
+    cooldown: 0.3
+    key: space
+  }
+}

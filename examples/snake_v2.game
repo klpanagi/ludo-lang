@@ -1,0 +1,59 @@
+import "../behaviors/snake_base.behavior"
+
+game "Neon Snake" {
+  type: snake
+  canvas: 600x600
+  fps: 60
+  background: "#050a10"
+}
+
+use ruleset SnakeBase
+
+map {
+  cell_size: 20
+  layout: [
+    "##############################",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "#                            #",
+    "##############################"
+  ]
+}
+
+player {
+  name: "Neon"
+  start: (15, 15)
+  shape: square
+  color: "#00e5ff"
+  speed: 9
+  controls: arrows | wasd
+  start_length: 3
+  start_direction: right
+  head_color: "#80ffff"
+  grow_on_eat: true
+}

@@ -1,0 +1,44 @@
+import "../behaviors/bomberman_base.behavior"
+
+game "Inferno Bomber" {
+  type: bomberman
+  canvas: 448x448
+  fps: 60
+  background: "#050505"
+}
+
+use ruleset BombermanBase
+
+map {
+  cell_size: 32
+  layout: [
+    "#############",
+    "#P..s.s.s...#",
+    "#.#s#s#s#s#.#",
+    "#...s.s.s...#",
+    "#s#s#s#s#s#s#",
+    "#.s.E.s.E.s.#",
+    "#s#s#s#s#s#s#",
+    "#.s.s.s.s.s.#",
+    "#s#s#s#s#s#s#",
+    "#...s.s.s...#",
+    "#.#s#s#s#s#.#",
+    "#.s.s.s.E...#",
+    "#############"
+  ]
+}
+
+player {
+  name: "Inferno"
+  spawn: tile "P"
+  shape: circle
+  color: "#f97316"
+  speed: 4
+  lives: 3
+  controls: arrows | wasd
+  shoot {
+    projectile: Bomb
+    cooldown: 1.2
+    key: space
+  }
+}
