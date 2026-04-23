@@ -1,0 +1,29 @@
+/*
+ * Behavior DSL Grammar
+ * Parses .behavior files containing reusable ruleset definitions.
+ * Sections inside a ruleset mirror the sections available in game.tx.
+ */
+
+import game
+
+BehaviorModel:
+    rulesets+=RulesetDef
+;
+
+RulesetDef:
+    'ruleset' name=ID '{'
+        (tiles=TilesDef)?
+        (map=MapDef)?
+        (player=PlayerDef)?
+        (actors=ActorsDef)?
+        (food=FoodDef)?
+        (mechanics=MechanicsDef)?
+        (rules=RulesDef)?
+        (variables=VariablesDef)?
+        (levels=LevelsDef)?
+        (sounds=SoundsDef)?
+        (animations=AnimationsDef)?
+        (items=ItemsDef)?
+        (ui=UIDef)?
+    '}'
+;

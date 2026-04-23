@@ -69,6 +69,109 @@ def ext_action_to_js(action):
     return "{}"
 
 
+def load_rulesets(model_file, imports):
+    """Load all .behavior files and return {name: RulesetDef} dict."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    behavior_grammar = os.path.join(script_dir, "..", "grammar", "behavior.tx")
+    behavior_mm = metamodel_from_file(behavior_grammar)
+    model_dir = os.path.dirname(model_file)
+    rulesets = {}
+    for imp in imports:
+        beh_path = os.path.join(model_dir, imp.path)
+        beh_path = os.path.abspath(beh_path)
+        beh_model = behavior_mm.model_from_file(beh_path)
+        for rs in beh_model.rulesets:
+            rulesets[rs.name] = rs
+    return rulesets
+
+
+def merge_ruleset(game, ruleset):
+    """
+    Merge ruleset sections into game model.
+    Merge semantics per section type:
+      - List sections (tiles, actors, sounds, animations, items, levels):
+          ruleset items prepended to game items (game items take precedence order-wise)
+      - Single sections (map, player, food, mechanics, ui):
+          game wins — only apply ruleset value if game doesn't have it
+      - rules: merge collision_rules and timer_rules lists;
+               game's win/lose conditions win over ruleset's
+      - variables: combine; on name conflict, game's variable wins
+    """
+    # --- tiles (list) ---
+    if ruleset.tiles and ruleset.tiles.tiles:
+        if game.tiles:
+            game.tiles.tiles = list(ruleset.tiles.tiles) + list(game.tiles.tiles)
+        else:
+            game.tiles = ruleset.tiles
+
+    # --- actors (list) ---
+    if ruleset.actors and ruleset.actors.actors:
+        if game.actors:
+            game.actors.actors = list(ruleset.actors.actors) + list(game.actors.actors)
+        else:
+            game.actors = ruleset.actors
+
+    # --- single-value sections: game wins ---
+    for attr in (
+        "map",
+        "player",
+        "food",
+        "mechanics",
+        "ui",
+        "tetris_config",
+        "platformer_config",
+        "towerdefense_config",
+    ):
+        rs_val = getattr(ruleset, attr, None)
+        g_val = getattr(game, attr, None)
+        if rs_val and not g_val:
+            setattr(game, attr, rs_val)
+
+    # --- rules: merge ---
+    if ruleset.rules:
+        if game.rules:
+            game.rules.collision_rules = list(ruleset.rules.collision_rules) + list(
+                game.rules.collision_rules
+            )
+            game.rules.timer_rules = list(ruleset.rules.timer_rules) + list(
+                game.rules.timer_rules
+            )
+            if not game.rules.win and ruleset.rules.win:
+                game.rules.win = ruleset.rules.win
+            if not game.rules.lose and ruleset.rules.lose:
+                game.rules.lose = ruleset.rules.lose
+        else:
+            game.rules = ruleset.rules
+
+    # --- variables: combine, game wins on conflict ---
+    if ruleset.variables and ruleset.variables.vars:
+        if game.variables:
+            existing = {v.name for v in game.variables.vars}
+            new_vars = [v for v in ruleset.variables.vars if v.name not in existing]
+            game.variables.vars = new_vars + list(game.variables.vars)
+        else:
+            game.variables = ruleset.variables
+
+    # --- list-extension sections ---
+    list_sections = [
+        ("sounds", "sounds"),
+        ("animations", "animations"),
+        ("items", "items"),
+        ("levels", "levels"),
+    ]
+    for section_attr, items_attr in list_sections:
+        rs_sec = getattr(ruleset, section_attr, None)
+        g_sec = getattr(game, section_attr, None)
+        if rs_sec:
+            rs_items = getattr(rs_sec, items_attr, [])
+            if rs_items:
+                if g_sec:
+                    g_items = getattr(g_sec, items_attr, [])
+                    setattr(g_sec, items_attr, list(rs_items) + list(g_items))
+                else:
+                    setattr(game, section_attr, rs_sec)
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python generate.py <model_file.game>")
@@ -84,6 +187,20 @@ def main():
     model = mm.model_from_file(model_file)
 
     game = model
+
+    # Load and apply behavior rulesets
+    imports = getattr(game, "imports", [])
+    uses = getattr(game, "uses", [])
+    if imports or uses:
+        rulesets = load_rulesets(model_file, imports)
+        for use in uses:
+            if use.ruleset_name in rulesets:
+                merge_ruleset(game, rulesets[use.ruleset_name])
+            else:
+                print(
+                    f"Warning: ruleset '{use.ruleset_name}' not found in imported files",
+                    file=sys.stderr,
+                )
 
     if game.map and game.map.layout_file:
         map_path = os.path.join(os.path.dirname(model_file), game.map.layout_file)

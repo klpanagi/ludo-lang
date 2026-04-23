@@ -1,0 +1,18 @@
+ruleset PacManBase {
+  mechanics {
+    power_duration: 8
+    ghost_eat_score: 200
+    win_condition: all_dots_collected
+    lose_condition: lives_depleted
+  }
+  rules {
+    win: all_dots_collected
+    lose: lives_depleted
+    on_collision player enemy: lose_life
+  }
+  ui {
+    score: top_left
+    lives: bottom_left
+    level: top_right
+  }
+}

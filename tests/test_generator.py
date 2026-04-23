@@ -234,3 +234,27 @@ class TestSpawnResolutionInGenerator:
         assert len(output_names) == len(ALL_EXAMPLES), (
             "Some games produced the same output filename"
         )
+
+
+class TestBehaviorReuseGenerator:
+    def test_space_defender_v2_generates(self):
+        result = run_generator(EXAMPLES_DIR / "space_defender_v2.game")
+        assert result.returncode == 0, result.stderr
+
+    def test_space_defender_v2_has_merged_tiles(self):
+        result = run_generator(EXAMPLES_DIR / "space_defender_v2.game")
+        assert result.returncode == 0
+        out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
+        html = pathlib.Path(out_path_str).read_text()
+        assert "#1e293b" in html
+
+    def test_space_defender_v2_has_merged_rules(self):
+        result = run_generator(EXAMPLES_DIR / "space_defender_v2.game")
+        assert result.returncode == 0
+        out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
+        html = pathlib.Path(out_path_str).read_text()
+        assert "lose_life" in html
+
+    def test_pacman_v2_generates(self):
+        result = run_generator(EXAMPLES_DIR / "pacman_v2.game")
+        assert result.returncode == 0, result.stderr

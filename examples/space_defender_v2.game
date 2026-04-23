@@ -1,0 +1,52 @@
+import "../behaviors/shooter_base.behavior"
+
+game "Space Defender V2" {
+  type: shooter
+  canvas: 672x544
+  fps: 60
+  background: "#05050a"
+}
+
+use ruleset ShooterBase
+
+map {
+  cell_size: 32
+  layout: [
+    "#####################",
+    "#...................#",
+    "#...E.........E....#",
+    "#...................#",
+    "#.####.........####.#",
+    "#...................#",
+    "#...E.....E.....E..#",
+    "#...................#",
+    "#.####.........####.#",
+    "#...................#",
+    "#...E.........E....#",
+    "#...................#",
+    "#.####.........####.#",
+    "#...................#",
+    "#...................#",
+    "#.........P.........#",
+    "#####################"
+  ]
+}
+
+player {
+  name: "Commander"
+  spawn: tile "P"
+  color: "#60a5fa"
+  speed: 6
+  lives: 3
+  controls: arrows | wasd
+  shoot {
+    projectile: Bullet
+    cooldown: 0.2
+    key: space
+  }
+}
+
+ui {
+  score: top_right
+  lives: top_left
+}

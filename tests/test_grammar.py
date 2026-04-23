@@ -1,7 +1,7 @@
 import pytest
 import textwrap
 from textx import metamodel_from_file, TextXSyntaxError, TextXSemanticError
-from conftest import GRAMMAR_PATH, EXAMPLES_DIR
+from conftest import ROOT, GRAMMAR_PATH, EXAMPLES_DIR
 
 
 @pytest.fixture(scope="module")
@@ -367,3 +367,76 @@ class TestUIDef:
     def test_missing_ui_is_none(self, mm):
         m = mm.model_from_file(str(EXAMPLES_DIR / "snake.game"))
         pass
+
+
+class TestBehaviorGrammar:
+    @pytest.fixture(scope="class")
+    def behavior_mm(self):
+        from textx import metamodel_from_file
+
+        return metamodel_from_file(str(ROOT / "grammar" / "behavior.tx"))
+
+    def test_behavior_grammar_loads(self, behavior_mm):
+        assert behavior_mm is not None
+
+    def test_behavior_file_parses(self, behavior_mm):
+        f = ROOT / "behaviors" / "shooter_base.behavior"
+        model = behavior_mm.model_from_file(str(f))
+        assert len(model.rulesets) == 1
+        assert model.rulesets[0].name == "ShooterBase"
+
+    def test_ruleset_has_tiles(self, behavior_mm):
+        model = behavior_mm.model_from_file(
+            str(ROOT / "behaviors" / "shooter_base.behavior")
+        )
+        rs = model.rulesets[0]
+        assert rs.tiles is not None
+        assert len(rs.tiles.tiles) > 0
+
+    def test_ruleset_has_actors(self, behavior_mm):
+        model = behavior_mm.model_from_file(
+            str(ROOT / "behaviors" / "shooter_base.behavior")
+        )
+        rs = model.rulesets[0]
+        assert rs.actors is not None
+
+    def test_ruleset_has_rules(self, behavior_mm):
+        model = behavior_mm.model_from_file(
+            str(ROOT / "behaviors" / "shooter_base.behavior")
+        )
+        rs = model.rulesets[0]
+        assert rs.rules is not None
+        assert rs.rules.win == "all_enemies_defeated"
+
+    def test_pacman_base_behavior_parses(self, behavior_mm):
+        model = behavior_mm.model_from_file(
+            str(ROOT / "behaviors" / "pacman_base.behavior")
+        )
+        assert model.rulesets[0].name == "PacManBase"
+
+
+class TestGameImportDirectives:
+    @pytest.fixture(scope="class")
+    def mm(self):
+        from textx import metamodel_from_file
+
+        return metamodel_from_file(str(ROOT / "grammar" / "game.tx"))
+
+    def test_import_directive_parses(self, mm):
+        m = mm.model_from_file(str(ROOT / "examples" / "space_defender_v2.game"))
+        assert len(m.imports) == 1
+        assert "shooter_base.behavior" in m.imports[0].path
+
+    def test_use_directive_parses(self, mm):
+        m = mm.model_from_file(str(ROOT / "examples" / "space_defender_v2.game"))
+        assert len(m.uses) == 1
+        assert m.uses[0].ruleset_name == "ShooterBase"
+
+    def test_existing_games_unaffected(self, mm):
+        for f in sorted((ROOT / "examples").glob("*.game")):
+            if "v2" in f.stem:
+                continue
+            model = mm.model_from_file(str(f))
+            assert model is not None
+            assert len(model.imports) == 0
+            assert len(model.uses) == 0

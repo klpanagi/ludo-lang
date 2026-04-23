@@ -1,0 +1,30 @@
+ruleset ShooterBase {
+  tiles {
+    tile wall         symbol: "#"  solid: true   color: "#1e293b"
+    tile empty        symbol: "."  solid: false  color: "#05050a"
+    tile player_spawn symbol: "P"  solid: false  color: "#05050a"  tag: player_spawn
+    tile enemy_spawn  symbol: "E"  solid: false  color: "#05050a"  tag: enemy_spawn
+  }
+  actors {
+    enemy "Grunt" {
+      spawn: tile "E"
+      color: "#ef4444"
+      speed: 2.5
+      points: 100
+      behavior: chase
+    }
+    projectile "Bullet" {
+      speed: 18
+      color: "#fbbf24"
+      direction: from_player
+      on_hit_wall: destroy
+      on_hit_enemy: destroy_all
+    }
+  }
+  rules {
+    win: all_enemies_defeated
+    lose: lives_depleted
+    on_collision player enemy: lose_life
+    on_collision projectile enemy: destroy, add_points
+  }
+}
