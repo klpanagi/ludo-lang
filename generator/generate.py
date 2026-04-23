@@ -199,7 +199,7 @@ def build_symbol_map(entities):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python generate.py <model_file.game>")
+        print("Usage: python generate.py <model_file.ludo>")
         sys.exit(1)
 
     model_file = os.path.abspath(sys.argv[1])

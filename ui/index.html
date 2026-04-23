@@ -86,15 +86,15 @@
   #game-list::-webkit-scrollbar-track { background: transparent; }
   #game-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-  .game-card {
+  .ludo-card {
     display: flex; flex-direction: column; gap: 4px;
     padding: 10px 14px; cursor: pointer; border-left: 3px solid transparent;
     transition: background .1s, border-color .1s;
   }
-  .game-card:hover { background: var(--bg3); }
-  .game-card.active { background: var(--bg3); border-left-color: var(--accent); }
-  .game-card .gc-name { font-size: .85rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .game-card .gc-type { display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #fff; }
+  .ludo-card:hover { background: var(--bg3); }
+  .ludo-card.active { background: var(--bg3); border-left-color: var(--accent); }
+  .ludo-card .gc-name { font-size: .85rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ludo-card .gc-type { display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #fff; }
 
   /* ── EDITOR PANE ── */
   #editor-pane {
@@ -177,7 +177,7 @@
   <div id="editor-pane">
     <div id="editor-header">
       <div class="dot"></div>
-      <span id="editor-filename">untitled.game</span>
+      <span id="editor-filename">untitled.ludo</span>
     </div>
     <textarea id="editor" spellcheck="false" placeholder="Select a game from the sidebar or click + New"></textarea>
   </div>
@@ -265,7 +265,7 @@ function loadGameList() {
       list.innerHTML = '';
       games.forEach(function(g) {
         var card = document.createElement('div');
-        card.className = 'game-card';
+        card.className = 'ludo-card';
         card.dataset.stem = g.stem;
         card.innerHTML =
           '<div class="gc-name">' + escHtml(g.name) + '</div>' +
@@ -280,34 +280,34 @@ function loadGameList() {
 
 function selectGame(stem, name) {
   currentStem = stem;
-  document.querySelectorAll('.game-card').forEach(function(c) {
+  document.querySelectorAll('.ludo-card').forEach(function(c) {
     c.classList.toggle('active', c.dataset.stem === stem);
   });
   document.getElementById('selected-label').textContent = name || stem;
-  document.getElementById('editor-filename').textContent = stem + '.game';
-  setStatus('Loading ' + stem + '.game …');
+  document.getElementById('editor-filename').textContent = stem + '.ludo';
+  setStatus('Loading ' + stem + '.ludo …');
 
   fetch('/api/games/' + encodeURIComponent(stem))
     .then(function(r) { return r.text(); })
     .then(function(src) {
       document.getElementById('editor').value = src;
-      setStatus('Loaded ' + stem + '.game', 'ok');
+      setStatus('Loaded ' + stem + '.ludo', 'ok');
     })
     .catch(function(e) { setStatus('Error: ' + e.message, 'error'); });
 }
 
 function newGame() {
   currentStem = null;
-  document.querySelectorAll('.game-card').forEach(function(c) { c.classList.remove('active'); });
+  document.querySelectorAll('.ludo-card').forEach(function(c) { c.classList.remove('active'); });
   document.getElementById('selected-label').textContent = 'New Game';
-  document.getElementById('editor-filename').textContent = 'untitled.game';
+  document.getElementById('editor-filename').textContent = 'untitled.ludo';
   document.getElementById('editor').value = NEW_STUB;
   setStatus('New game — edit the source and click ▶ Run', '');
 }
 
 function runGame() {
   var source = document.getElementById('editor').value.trim();
-  if (!source) { setStatus('Editor is empty — write or load a .game model first', 'error'); return; }
+  if (!source) { setStatus('Editor is empty — write or load a .ludo model first', 'error'); return; }
 
   var btn = document.getElementById('btn-run');
   btn.disabled = true;

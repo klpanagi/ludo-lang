@@ -22,7 +22,7 @@ PORT = 8765
 
 
 def parse_game_type(filepath):
-    """Quickly extract game type from a .game file without textX."""
+    """Quickly extract game type from a .ludo file without textX."""
     try:
         text = pathlib.Path(filepath).read_text()
         m = re.search(r"type\s*:\s*(\w+)", text)
@@ -32,7 +32,7 @@ def parse_game_type(filepath):
 
 
 def parse_game_name(filepath):
-    """Extract the game name string from a .game file."""
+    """Extract the game name string from a .ludo file."""
     try:
         text = pathlib.Path(filepath).read_text()
         m = re.search(r'game\s+"([^"]+)"', text)
@@ -66,7 +66,7 @@ class GameDSLHandler(BaseHTTPRequestHandler):
 
         elif path == "/api/games":
             games = []
-            for f in sorted(EXAMPLES_DIR.glob("*.game")):
+            for f in sorted(EXAMPLES_DIR.glob("*.ludo")):
                 games.append(
                     {
                         "filename": f.name,
@@ -79,7 +79,7 @@ class GameDSLHandler(BaseHTTPRequestHandler):
 
         elif path.startswith("/api/games/"):
             stem = path[len("/api/games/") :]
-            game_file = EXAMPLES_DIR / f"{stem}.game"
+            game_file = EXAMPLES_DIR / f"{stem}.ludo"
             if game_file.exists():
                 self._text(game_file.read_text())
             else:
@@ -112,7 +112,7 @@ class GameDSLHandler(BaseHTTPRequestHandler):
                 return
 
             # Write to temp file in examples dir (so relative paths in model work)
-            tmp_path = EXAMPLES_DIR / "_temp_preview.game"
+            tmp_path = EXAMPLES_DIR / "_temp_preview.ludo"
             try:
                 tmp_path.write_text(source)
                 result = subprocess.run(

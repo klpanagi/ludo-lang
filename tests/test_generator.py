@@ -8,7 +8,7 @@ from conftest import ROOT, EXAMPLES_DIR, OUTPUT_DIR, GRAMMAR_PATH, TEMPLATES_DIR
 GENERATOR = ROOT / "generator" / "generate.py"
 PYTHON = sys.executable
 
-ALL_EXAMPLES = sorted(EXAMPLES_DIR.glob("*.game"))
+ALL_EXAMPLES = sorted(EXAMPLES_DIR.glob("*.ludo"))
 NEW_TEMPLATES = ["grid", "top_down", "platformer", "physics"]
 
 
@@ -63,14 +63,14 @@ class TestAllExamplesGenerate:
 
 class TestOutputContent:
     def test_snake_output_has_game_name(self):
-        result = run_generator(EXAMPLES_DIR / "snake.game")
+        result = run_generator(EXAMPLES_DIR / "snake.ludo")
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()
         assert "Snake" in html or "snake" in html.lower()
 
     def test_snake_output_has_canvas_and_raf(self):
-        result = run_generator(EXAMPLES_DIR / "snake.game")
+        result = run_generator(EXAMPLES_DIR / "snake.ludo")
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()
@@ -78,14 +78,14 @@ class TestOutputContent:
         assert "requestAnimationFrame" in html
 
     def test_space_defender_has_player_color(self):
-        result = run_generator(EXAMPLES_DIR / "space_defender.game")
+        result = run_generator(EXAMPLES_DIR / "space_defender.ludo")
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()
         assert "#60a5fa" in html
 
     def test_pacman_has_player_color(self):
-        result = run_generator(EXAMPLES_DIR / "pacman.game")
+        result = run_generator(EXAMPLES_DIR / "pacman.ludo")
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()
@@ -118,21 +118,21 @@ class TestOutputContent:
 
 class TestEntityContextInOutput:
     def test_entity_colors_appear_in_output(self):
-        result = run_generator(EXAMPLES_DIR / "snake.game")
+        result = run_generator(EXAMPLES_DIR / "snake.ludo")
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()
         assert "ENTITY_DEFS" in html or "entity" in html.lower()
 
     def test_symbol_map_in_grid_output(self):
-        result = run_generator(EXAMPLES_DIR / "snake.game")
+        result = run_generator(EXAMPLES_DIR / "snake.ludo")
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()
         assert "SYMBOL_MAP" in html
 
     def test_engine_flags_appear_in_output(self):
-        result = run_generator(EXAMPLES_DIR / "snake.game")
+        result = run_generator(EXAMPLES_DIR / "snake.ludo")
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()
@@ -199,7 +199,7 @@ class TestTemplateFiles:
 class TestGeneratorErrorHandling:
     def test_missing_file_exits_nonzero(self):
         result = subprocess.run(
-            [PYTHON, str(GENERATOR), "nonexistent_totally_fake.game"],
+            [PYTHON, str(GENERATOR), "nonexistent_totally_fake.ludo"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -219,7 +219,7 @@ class TestGeneratorErrorHandling:
 
     def test_invalid_game_source_exits_nonzero(self):
         with tempfile.NamedTemporaryFile(
-            suffix=".game", mode="w", delete=False, dir=str(EXAMPLES_DIR)
+            suffix=".ludo", mode="w", delete=False, dir=str(EXAMPLES_DIR)
         ) as f:
             f.write("this is not valid game DSL syntax @@@@")
             tmp_path = f.name
@@ -238,7 +238,7 @@ class TestGeneratorErrorHandling:
 
 class TestRulesInOutput:
     def test_pacman_has_conditional_rules(self):
-        result = run_generator(EXAMPLES_DIR / "pacman.game")
+        result = run_generator(EXAMPLES_DIR / "pacman.ludo")
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()
@@ -247,7 +247,7 @@ class TestRulesInOutput:
         assert "fireCollisionRule" in html
 
     def test_pacman_has_timer_rules(self):
-        result = run_generator(EXAMPLES_DIR / "pacman.game")
+        result = run_generator(EXAMPLES_DIR / "pacman.ludo")
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()

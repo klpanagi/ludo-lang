@@ -12,7 +12,7 @@ def mm():
 
 
 def parse(mm, src):
-    with tempfile.NamedTemporaryFile(suffix=".game", mode="w", delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".ludo", mode="w", delete=False) as f:
         f.write(textwrap.dedent(src))
         path = f.name
     try:
@@ -31,7 +31,7 @@ class TestGrammarLoads:
 
 class TestAllExamplesParseClean:
     @pytest.mark.parametrize(
-        "game_file", sorted(EXAMPLES_DIR.glob("*.game")), ids=lambda p: p.stem
+        "game_file", sorted(EXAMPLES_DIR.glob("*.ludo")), ids=lambda p: p.stem
     )
     def test_example_parses(self, mm, game_file):
         model = mm.model_from_file(str(game_file))

@@ -1,6 +1,6 @@
 # Ludo — 2D Game Generation DSL
 
-Ludo is a domain-specific language for declaratively defining 2D browser games. Write a `.game` model file describing your game's engine, entities, map, player, rules, and UI — Ludo generates a self-contained, playable HTML file with no build step and no external dependencies.
+Ludo is a domain-specific language for declaratively defining 2D browser games. Write a `.ludo` model file describing your game's engine, entities, map, player, rules, and UI — Ludo generates a self-contained, playable HTML file with no build step and no external dependencies.
 
 ```
 game "Space Defender" {
@@ -26,7 +26,7 @@ ui     { score: top_right  lives: top_left }
 ```
 
 ```bash
-python generator/generate.py examples/space_defender.game
+python generator/generate.py examples/space_defender.ludo
 # → output/space_defender.html  (open in any browser, no server needed)
 ```
 
@@ -68,11 +68,11 @@ python generator/generate.py examples/space_defender.game
 pip install textX==4.3.0 Jinja2==3.1.6
 
 # Generate a single game
-python generator/generate.py examples/snake.game
+python generator/generate.py examples/snake.ludo
 # Open output/snake.html in your browser
 
 # Generate all examples at once
-for f in examples/*.game; do python generator/generate.py "$f"; done
+for f in examples/*.ludo; do python generator/generate.py "$f"; done
 ```
 
 ---
@@ -88,7 +88,7 @@ docker compose up -d
 
 ## Web UI
 
-A minimal local web UI lets you edit `.game` files and preview the generated output in real time.
+A minimal local web UI lets you edit `.ludo` files and preview the generated output in real time.
 
 ```bash
 python ui/server.py
@@ -116,7 +116,7 @@ Ludo uses four generic engine types. All game behaviors — movement, AI, win/lo
 
 ### Game Header
 
-Every `.game` file starts with a `game` block.
+Every `.ludo` file starts with a `game` block.
 
 ```
 game "My Game" {
@@ -504,7 +504,7 @@ Supported condition operators: `==`, `!=`, `<`, `>`, `<=`, `>=`
 
 ## Behavior Reuse
 
-Behaviors are reusable DSL fragments shared across multiple game models. They are defined in `.behavior` files and imported into `.game` files.
+Behaviors are reusable DSL fragments shared across multiple game models. They are defined in ``.behavior` files and imported into `.ludo` files.
 
 ### Defining a behavior file
 
@@ -576,22 +576,22 @@ When `use ruleset X` is applied:
 
 | File | Engine | Description |
 |------|--------|-------------|
-| `examples/snake.game` | `grid` | Classic snake — grow by eating food, avoid walls and yourself |
-| `examples/pacman.game` | `grid` | Maze dot-collector with BFS ghost AI and power pellets |
-| `examples/bomberman.game` | `grid` | Grid-based bomb placement with blast radius and chain explosions |
-| `examples/sokoban.game` | `grid` | Push-the-box puzzle with step movement |
-| `examples/frogger.game` | `grid` | Lane-crossing with moving obstacles |
-| `examples/space_invaders.game` | `grid` | Fixed-formation space invaders with formation movement |
-| `examples/tetris.game` | `grid` | Falling-tetromino stacker |
-| `examples/space_defender.game` | `top_down` | Top-down arena shooter with multiple enemy AI types |
-| `examples/towerdefense.game` | `top_down` | Path-based tower defense with wave spawning |
-| `examples/platformer.game` | `platformer` | Side-scrolling platformer with gravity, jump, and patrol AI |
-| `examples/breakout.game` | `physics` | Paddle-and-ball brick breaker with bounce physics |
+| `examples/snake.ludo` | `grid` | Classic snake — grow by eating food, avoid walls and yourself |
+| `examples/pacman.ludo` | `grid` | Maze dot-collector with BFS ghost AI and power pellets |
+| `examples/bomberman.ludo` | `grid` | Grid-based bomb placement with blast radius and chain explosions |
+| `examples/sokoban.ludo` | `grid` | Push-the-box puzzle with step movement |
+| `examples/frogger.ludo` | `grid` | Lane-crossing with moving obstacles |
+| `examples/space_invaders.ludo` | `grid` | Fixed-formation space invaders with formation movement |
+| `examples/tetris.ludo` | `grid` | Falling-tetromino stacker |
+| `examples/space_defender.ludo` | `top_down` | Top-down arena shooter with multiple enemy AI types |
+| `examples/towerdefense.ludo` | `top_down` | Path-based tower defense with wave spawning |
+| `examples/platformer.ludo` | `platformer` | Side-scrolling platformer with gravity, jump, and patrol AI |
+| `examples/breakout.ludo` | `physics` | Paddle-and-ball brick breaker with bounce physics |
 
 Generate all examples:
 
 ```bash
-for f in examples/*.game; do python generator/generate.py "$f"; done
+for f in examples/*.ludo; do python generator/generate.py "$f"; done
 ls output/
 ```
 
@@ -604,7 +604,7 @@ ls output/
 │   ├── game.tx            # textX grammar — GameModel (engine, entities, player, rules, ...)
 │   └── behavior.tx        # textX grammar — BehaviorModel (ruleset definitions)
 ├── generator/
-│   └── generate.py        # CLI: python generator/generate.py <model.game>
+│   └── generate.py        # CLI: python generator/generate.py <model.ludo>
 ├── templates/
 │   ├── _behavior_dsl.j2   # Shared: GAME_VARS, COLLISION_RULES, TIMER_RULES interpreter
 │   ├── _runtime.j2        # Shared: drawOverlay, ctx.roundRect polyfill, key input

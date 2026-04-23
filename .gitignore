@@ -7,7 +7,7 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
-examples/_temp_preview.game
+examples/_temp_preview.ludo
 .playwright-mcp/
 screenshots/
 *.jpg
