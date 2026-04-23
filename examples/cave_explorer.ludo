@@ -1,0 +1,103 @@
+game "Cave Explorer" {
+    canvas: 800x480
+    fps: 60
+    background: "#050508"
+}
+
+engine {
+    type: platformer
+    gravity: 880.0
+    jump_force: 450.0
+    scroll_speed: 0.0
+    coin_score: 30
+    enemy_score: 75
+}
+
+entities {
+    entity ground {
+        type: solid
+        symbol: "#"
+        color: "#4b5563"
+    }
+    entity platform {
+        type: solid
+        symbol: "="
+        color: "#6b7280"
+    }
+    entity gem {
+        type: collectible
+        symbol: "G"
+        color: "#06b6d4"
+        score: 30
+    }
+    entity crystal {
+        type: collectible
+        symbol: "C"
+        color: "#a855f7"
+        score: 75
+    }
+    entity bat {
+        type: enemy
+        spawn: "B"
+        color: "#9ca3af"
+        speed: 2.5
+        ai: patrol
+        points: 75
+    }
+    entity spike {
+        type: enemy
+        spawn: "S"
+        color: "#dc2626"
+        speed: 0.0
+        ai: none
+        points: 0
+    }
+    entity exit_door {
+        type: open
+        symbol: "E"
+        color: "#f59e0b"
+    }
+}
+
+map {
+    cell_size: 32
+    layout: [
+        "#########################",
+        "#                     E #",
+        "#     =====            #",
+        "#                      #",
+        "#  G     C      G      #",
+        "#  =====        =====  #",
+        "#                      #",
+        "#  B        S          #",
+        "#  =====               #",
+        "#                 C    #",
+        "#     G   =====        #",
+        "#                      #",
+        "#  B            B      #",
+        "# P   G     C          #",
+        "#########################"
+    ]
+}
+
+player {
+    name: "Explorer"
+    spawn: "P"
+    color: "#f8fafc"
+    speed: 4
+    lives: 3
+    controls: arrows
+}
+
+rules {
+    win: reached_exit
+    lose: lives_depleted
+    on_collision player gem: collect, add_points
+    on_collision player crystal: collect, add_points
+    on_collision player enemy: lose_life
+}
+
+ui {
+    score: top_right
+    lives: top_left
+}

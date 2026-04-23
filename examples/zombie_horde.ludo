@@ -1,0 +1,105 @@
+game "Zombie Horde" {
+    canvas: 640x480
+    fps: 60
+    background: "#1a0a0a"
+}
+
+engine {
+    type: top_down
+    shooting: true
+    ai_enemies: true
+    wave_system: true
+    wave_count: 6
+    enemies_per_wave: 10
+}
+
+entities {
+    entity wall {
+        type: solid
+        symbol: "#"
+        color: "#6b7280"
+    }
+    entity crate {
+        type: solid
+        symbol: "B"
+        color: "#92400e"
+    }
+    entity zombie {
+        type: enemy
+        spawn: "Z"
+        color: "#4ade80"
+        speed: 1.8
+        ai: chase
+        points: 50
+    }
+    entity runner {
+        type: enemy
+        spawn: "R"
+        color: "#ef4444"
+        speed: 4.0
+        ai: chase
+        points: 100
+    }
+    entity boomer {
+        type: enemy
+        spawn: "M"
+        color: "#a855f7"
+        speed: 2.5
+        ai: random
+        points: 150
+    }
+    entity bullet {
+        type: projectile
+        color: "#fbbf24"
+        speed: 18
+        direction: from_player
+        on_hit_wall: destroy
+        on_hit_entity: destroy
+    }
+}
+
+map {
+    cell_size: 32
+    layout: [
+        "####################",
+        "#                  #",
+        "# ##          ###  #",
+        "# #                #",
+        "#          B       #",
+        "#    ##    B       #",
+        "#    #             #",
+        "#    #    P        #",
+        "#         #        #",
+        "#    #### #        #",
+        "#         #        #",
+        "#    #             #",
+        "#    #  BB   ##    #",
+        "#               B  #",
+        "####################"
+    ]
+}
+
+player {
+    name: "Survivor"
+    spawn: "P"
+    color: "#facc15"
+    speed: 5
+    lives: 3
+    shoot {
+        projectile: bullet
+        cooldown: 0.25
+        key: space
+    }
+}
+
+rules {
+    win: all_enemies_defeated
+    lose: lives_depleted
+    on_collision player enemy: lose_life
+    on_collision bullet enemy: destroy, add_points
+}
+
+ui {
+    score: top_right
+    lives: top_left
+}

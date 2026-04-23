@@ -1,0 +1,91 @@
+game "Stealth Ops" {
+    canvas: 640x480
+    fps: 60
+    background: "#0f172a"
+}
+
+engine {
+    type: top_down
+    shooting: true
+    ai_enemies: true
+}
+
+entities {
+    entity wall {
+        type: solid
+        symbol: "#"
+        color: "#475569"
+    }
+    entity cover {
+        type: solid
+        symbol: "B"
+        color: "#78350f"
+    }
+    entity guard {
+        type: enemy
+        spawn: "G"
+        color: "#fbbf24"
+        speed: 2.5
+        ai: patrol
+        points: 100
+    }
+    entity captain {
+        type: enemy
+        spawn: "C"
+        color: "#ef4444"
+        speed: 3.5
+        ai: chase
+        points: 300
+    }
+    entity bullet {
+        type: projectile
+        color: "#f8fafc"
+        speed: 18
+        direction: from_player
+        on_hit_wall: destroy
+        on_hit_entity: destroy
+    }
+}
+
+map {
+    cell_size: 40
+    layout: [
+        "################",
+        "# P            #",
+        "#    BB        #",
+        "#              #",
+        "#    ####      #",
+        "#    #  #   G  #",
+        "#    #  #      #",
+        "#    ####      #",
+        "#          BB  #",
+        "#     G        #",
+        "#           C  #",
+        "################"
+    ]
+}
+
+player {
+    name: "Agent"
+    spawn: "P"
+    color: "#34d399"
+    speed: 5
+    lives: 3
+    shoot {
+        projectile: bullet
+        cooldown: 0.3
+        key: space
+    }
+}
+
+rules {
+    win: all_enemies_defeated
+    lose: lives_depleted
+    on_collision player enemy: lose_life
+    on_collision bullet enemy: destroy, add_points
+}
+
+ui {
+    score: top_right
+    lives: top_left
+}

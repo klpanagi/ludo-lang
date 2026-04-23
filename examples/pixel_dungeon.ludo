@@ -1,0 +1,105 @@
+game "Pixel Dungeon" {
+    canvas: 512x512
+    fps: 60
+    background: "#0a0a0f"
+}
+
+engine {
+    type: grid
+    movement: continuous
+    ghost_ai: pathfinding
+}
+
+entities {
+    entity wall {
+        type: solid
+        symbol: "#"
+        color: "#312e81"
+    }
+    entity orc {
+        type: enemy
+        spawn: "O"
+        color: "#4ade80"
+        speed: 3.0
+        ai: chase
+        points: 100
+    }
+    entity wraith {
+        type: enemy
+        spawn: "W"
+        color: "#a855f7"
+        speed: 2.5
+        ai: random
+        points: 75
+    }
+    entity troll {
+        type: enemy
+        spawn: "T"
+        color: "#ef4444"
+        speed: 2.0
+        ai: pathfinding
+        points: 200
+    }
+    entity treasure {
+        type: collectible
+        symbol: "$"
+        color: "#fbbf24"
+        score: 50
+    }
+    entity gem {
+        type: collectible
+        symbol: "G"
+        color: "#06b6d4"
+        score: 25
+    }
+    entity portal {
+        type: target
+        symbol: "X"
+        color: "#a78bfa"
+        solid: false
+    }
+}
+
+map {
+    cell_size: 32
+    layout: [
+        "################",
+        "# P #      # G #",
+        "#   #  O O #   #",
+        "#   #      #   #",
+        "####    ########",
+        "#   $  W       #",
+        "#              #",
+        "#    ######    #",
+        "#    #    #    #",
+        "# G  # T  #  $ #",
+        "#    #    #    #",
+        "#    ######    #",
+        "#              #",
+        "#   W      $   #",
+        "#             X#",
+        "################"
+    ]
+}
+
+player {
+    name: "Hero"
+    spawn: "P"
+    color: "#f8fafc"
+    speed: 4
+    lives: 3
+    controls: arrows
+}
+
+rules {
+    win: reached_exit
+    lose: lives_depleted
+    on_collision player enemy: lose_life
+    on_collision player treasure: collect, add_points
+    on_collision player gem: collect, add_points
+}
+
+ui {
+    score: top_right
+    lives: top_left
+}
