@@ -83,8 +83,27 @@
   var CELL      = {{ cell_size }};
   var BG_COLOR  = "{{ game.background }}";
 
-  var SHOOTING      = {{ 'true' if engine.shooting else 'false' }};
-  var AI_ENEMIES    = {{ 'true' if engine.ai_enemies else 'false' }};
+   var SHOOTING      = {{ 'true' if engine.shooting else 'false' }};
+   var AI_ENEMIES    = {{ 'true' if engine.ai_enemies else 'false' }};
+
+  /* ---- ICON MAPS ---- */
+  var AI_ICONS = {
+    chase:       '💀',
+    random:      '👻',
+    patrol:      '🤖',
+    pathfinding: '🐉',
+    formation:   '👾',
+    ambush:      '🕵️',
+    flanker:     '🏹',
+    none:        '⚡'
+  };
+{% if engine.shooting %}
+  var PLAYER_ICON = '🎯';
+{% elif engine.tower_placement %}
+  var PLAYER_ICON = '🏰';
+{% else %}
+  var PLAYER_ICON = '🧍';
+{% endif %}
   var TOWER_MODE    = {{ 'true' if engine.tower_placement else 'false' }};
   var WAVE_SYSTEM   = {{ 'true' if engine.wave_system else 'false' }};
   var WAVE_COUNT    = {{ engine.wave_count or 5 }};
@@ -882,66 +901,71 @@
     }
   }
 
-  function drawPlayer() {
-    if (invincTimer > 0 && Math.floor(gameTime * 8) % 2 === 0) return;
-    ctx.save();
-    ctx.shadowColor = PLAYER_COLOR;
-    ctx.shadowBlur  = 14;
-    ctx.fillStyle   = PLAYER_COLOR;
-    if (PLAYER_SHAPE === 'square') {
-      var s = player.radius * 1.6;
-      ctx.fillRect(player.x - s / 2, player.y - s / 2, s, s);
-    } else {
-      ctx.beginPath();
-      ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    /* Aim indicator */
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.lineWidth   = 2;
-    ctx.beginPath();
-    ctx.moveTo(player.x, player.y);
-    ctx.lineTo(player.x + aimDx * player.radius * 1.8, player.y + aimDy * player.radius * 1.8);
-    ctx.stroke();
-    ctx.restore();
-  }
+   function drawPlayer() {
+     if (invincTimer > 0 && Math.floor(gameTime * 8) % 2 === 0) return;
+     ctx.save();
+     ctx.shadowColor = PLAYER_COLOR;
+     ctx.shadowBlur  = 16;
+     ctx.fillStyle   = PLAYER_COLOR + 'cc';
+     if (PLAYER_SHAPE === 'square') {
+       var s = player.radius * 1.6;
+       ctx.fillRect(player.x - s / 2, player.y - s / 2, s, s);
+     } else {
+       ctx.beginPath();
+       ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+       ctx.fill();
+     }
+     ctx.restore();
+     /* Emoji icon */
+     var iconSize = Math.round(player.radius * 1.5);
+     ctx.font         = iconSize + 'px serif';
+     ctx.textAlign    = 'center';
+     ctx.textBaseline = 'middle';
+     ctx.fillText(PLAYER_ICON, player.x, player.y);
+     /* Aim indicator */
+     ctx.save();
+     ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+     ctx.lineWidth   = 2;
+     ctx.beginPath();
+     ctx.moveTo(player.x, player.y);
+     ctx.lineTo(player.x + aimDx * player.radius * 2.2, player.y + aimDy * player.radius * 2.2);
+     ctx.stroke();
+     ctx.restore();
+   }
 
-  function drawEnemies() {
-    for (var i = 0; i < enemies.length; i++) {
-      var e = enemies[i];
-      if (!e.alive) continue;
-      ctx.save();
-      ctx.shadowColor = e.color;
-      ctx.shadowBlur  = 10;
-      ctx.fillStyle   = e.color;
-      ctx.beginPath();
-      ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      /* Eyes */
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.arc(e.x - e.radius * 0.3, e.y - e.radius * 0.2, e.radius * 0.22, 0, Math.PI * 2);
-      ctx.arc(e.x + e.radius * 0.3, e.y - e.radius * 0.2, e.radius * 0.22, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#000';
-      ctx.beginPath();
-      ctx.arc(e.x - e.radius * 0.3, e.y - e.radius * 0.2, e.radius * 0.1, 0, Math.PI * 2);
-      ctx.arc(e.x + e.radius * 0.3, e.y - e.radius * 0.2, e.radius * 0.1, 0, Math.PI * 2);
-      ctx.fill();
-      /* HP bar */
-      if (e.maxHp > 1) {
-        var bw = e.radius * 2;
-        var bh = 4;
-        var bx = e.x - e.radius;
-        var by = e.y - e.radius - 8;
-        ctx.fillStyle = '#333';
-        ctx.fillRect(bx, by, bw, bh);
-        ctx.fillStyle = '#ff4444';
-        ctx.fillRect(bx, by, bw * (e.hp / e.maxHp), bh);
-      }
-    }
-  }
+   function drawEnemies() {
+     for (var i = 0; i < enemies.length; i++) {
+       var e = enemies[i];
+       if (!e.alive) continue;
+       /* Glowing halo */
+       ctx.save();
+       ctx.shadowColor = e.color;
+       ctx.shadowBlur  = 12;
+       ctx.fillStyle   = e.color + 'aa';
+       ctx.beginPath();
+       ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+       ctx.fill();
+       ctx.restore();
+       /* Emoji icon */
+       var eai  = (e.def && e.def.ai) ? e.def.ai : (e.ai || 'chase');
+       var eico = AI_ICONS[eai] || '👾';
+       ctx.font         = Math.round(e.radius * 1.5) + 'px serif';
+       ctx.textAlign    = 'center';
+       ctx.textBaseline = 'middle';
+       ctx.fillText(eico, e.x, e.y);
+       /* HP bar */
+       if (e.maxHp > 1) {
+         var bw = e.radius * 2;
+         var bh = 4;
+         var bx = e.x - e.radius;
+         var by = e.y - e.radius - 8;
+         ctx.fillStyle = '#333';
+         ctx.fillRect(bx, by, bw, bh);
+         ctx.fillStyle = '#ff4444';
+         ctx.fillRect(bx, by, bw * (e.hp / e.maxHp), bh);
+       }
+     }
+   }
 
   function drawBullets() {
     ctx.save();

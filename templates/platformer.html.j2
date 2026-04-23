@@ -88,10 +88,25 @@
   var COIN_SCORE   = {{ engine.coin_score or 50 }};
   var ENEMY_SCORE  = {{ engine.enemy_score or 100 }};
 
-  var PLAYER_SPEED = {{ game.player.speed if game.player else 220 }};
-  var PLAYER_COLOR = "{{ game.player.color if game.player else '#4fc3f7' }}";
-  var PLAYER_LIVES = {{ game.player.lives if game.player and game.player.lives else 3 }};
-  var PLAYER_NAME  = "{{ game.player.name if game.player else 'Hero' }}";
+   var PLAYER_SPEED = {{ game.player.speed if game.player else 220 }};
+   var PLAYER_COLOR = "{{ game.player.color if game.player else '#4fc3f7' }}";
+   var PLAYER_LIVES = {{ game.player.lives if game.player and game.player.lives else 3 }};
+   var PLAYER_NAME  = "{{ game.player.name if game.player else 'Hero' }}";
+
+  /* ---- ICON MAPS ---- */
+  var AI_ICONS = {
+    chase:       '💀',
+    random:      '👻',
+    patrol:      '🦇',
+    pathfinding: '🐉',
+    ambush:      '🕵️',
+    none:        '⚠️'
+  };
+{% if engine.scroll_speed and engine.scroll_speed > 0 %}
+  var PLAYER_ICON = '🏃';
+{% else %}
+  var PLAYER_ICON = '🦸';
+{% endif %}
 
   /* ---- Entity registry from DSL ---- */
   var ENTITY_DEFS = {
@@ -748,54 +763,61 @@
     }
   }
 
-  function drawEnemies() {
-    for (var i = 0; i < enemies.length; i++) {
-      var e = enemies[i];
-      if (!e.alive && !e.stomped) continue;
-      var sx = e.x - cameraX;
-      if (sx + e.w < 0 || sx > CANVAS_W) continue;
-      var alpha = e.stomped ? (e.stompTimer / 0.4) : 1;
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = e.color;
-      var eh = e.stomped ? e.h * 0.3 : e.h;
-      var ey = e.stomped ? e.y + e.h * 0.7 : e.y;
-      ctx.fillRect(sx, ey, e.w, eh);
-      if (!e.stomped) {
-        /* Eyes */
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(sx + 4, ey + 5, 6, 6);
-        ctx.fillRect(sx + e.w - 10, ey + 5, 6, 6);
-        ctx.fillStyle = '#000';
-        var eyeOff = e.vx > 0 ? 2 : 0;
-        ctx.fillRect(sx + 4 + eyeOff, ey + 7, 3, 3);
-        ctx.fillRect(sx + e.w - 10 + eyeOff, ey + 7, 3, 3);
-      }
-      ctx.globalAlpha = 1;
-    }
-  }
+   function drawEnemies() {
+     for (var i = 0; i < enemies.length; i++) {
+       var e = enemies[i];
+       if (!e.alive && !e.stomped) continue;
+       var sx = e.x - cameraX;
+       if (sx + e.w < 0 || sx > CANVAS_W) continue;
+       var alpha = e.stomped ? (e.stompTimer / 0.4) : 1;
+       ctx.globalAlpha = alpha;
+       /* Colored body */
+       ctx.save();
+       ctx.shadowColor = e.color;
+       ctx.shadowBlur  = 8;
+       ctx.fillStyle   = e.color + 'bb';
+       var eh = e.stomped ? e.h * 0.3 : e.h;
+       var ey = e.stomped ? e.y + e.h * 0.7 : e.y;
+       ctx.fillRect(sx, ey, e.w, eh);
+       ctx.restore();
+       /* Emoji icon (only when not squished) */
+       if (!e.stomped) {
+         var eai  = (e.def && e.def.ai) ? e.def.ai : '';
+         var eico = AI_ICONS[eai] || '👾';
+         var fontSize = Math.round(Math.min(e.w, eh) * 0.72);
+         ctx.font         = fontSize + 'px serif';
+         ctx.textAlign    = 'center';
+         ctx.textBaseline = 'middle';
+         ctx.fillText(eico, sx + e.w / 2, ey + eh / 2);
+       }
+       ctx.globalAlpha = 1;
+     }
+   }
 
-  function drawPlayer(t) {
-    if (!player.alive) return;
-    if (invincTimer > 0 && Math.floor(invincTimer * 10) % 2 === 0) return;
-    var sx = player.x - cameraX;
-    ctx.save();
-    ctx.shadowColor = PLAYER_COLOR;
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = PLAYER_COLOR;
-    ctx.fillRect(sx, player.y, PW, PH);
-    /* Visor */
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    var visorX = player.facingRight ? sx + PW - 10 : sx + 2;
-    ctx.fillRect(visorX, player.y + 6, 8, 10);
-    /* Leg animation */
-    if (Math.abs(player.vx) > 10 && player.onGround) {
-      var legPhase = Math.sin(t * 12) * 4;
-      ctx.fillStyle = PLAYER_COLOR;
-      ctx.fillRect(sx + 2, player.y + PH, 8, 6 + legPhase);
-      ctx.fillRect(sx + PW - 10, player.y + PH, 8, 6 - legPhase);
-    }
-    ctx.restore();
-  }
+   function drawPlayer(t) {
+     if (!player.alive) return;
+     if (invincTimer > 0 && Math.floor(invincTimer * 10) % 2 === 0) return;
+     var sx = player.x - cameraX;
+     ctx.save();
+     ctx.shadowColor = PLAYER_COLOR;
+     ctx.shadowBlur  = 14;
+     ctx.fillStyle   = PLAYER_COLOR + 'cc';
+     ctx.fillRect(sx, player.y, PW, PH);
+     /* Leg animation */
+     if (Math.abs(player.vx) > 10 && player.onGround) {
+       var legPhase = Math.sin(t * 12) * 4;
+       ctx.fillStyle = PLAYER_COLOR + 'cc';
+       ctx.fillRect(sx + 2, player.y + PH, 8, 6 + legPhase);
+       ctx.fillRect(sx + PW - 10, player.y + PH, 8, 6 - legPhase);
+     }
+     ctx.restore();
+     /* Emoji icon centered on body */
+     var fontSize = Math.round(Math.min(PW, PH) * 0.78);
+     ctx.font         = fontSize + 'px serif';
+     ctx.textAlign    = 'center';
+     ctx.textBaseline = 'middle';
+     ctx.fillText(PLAYER_ICON, sx + PW / 2, player.y + PH / 2);
+   }
 
   function drawParticles() {
     for (var i = 0; i < particles.length; i++) {

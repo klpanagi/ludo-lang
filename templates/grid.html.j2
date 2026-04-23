@@ -103,6 +103,32 @@
    var LANE_OBS     = {{ 'true' if engine.lane_obstacles else 'false' }};
    var WIN_COND     = "{{ game_rules.win if game_rules and game_rules.win else '' }}";
 
+  /* ---- ICON MAPS ---- */
+  var AI_ICONS = {
+    chase:       '💀',
+    random:      '👻',
+    patrol:      '🤖',
+    pathfinding: '🐉',
+    formation:   '👾',
+    ambush:      '🕵️',
+    none:        '⚡'
+  };
+{% if engine.grow_on_eat %}
+  var PLAYER_ICON = null;   // snake uses custom segment drawing
+{% elif engine.dot_collection %}
+  var PLAYER_ICON = '😮';
+{% elif engine.movement == 'step' %}
+  var PLAYER_ICON = '🧑';
+{% elif engine.lane_obstacles %}
+  var PLAYER_ICON = '🐸';
+{% elif engine.movement == 'formation' %}
+  var PLAYER_ICON = '🚀';
+{% elif engine.movement == 'falling' %}
+  var PLAYER_ICON = null;   // tetris has no freeform player
+{% else %}
+  var PLAYER_ICON = '🧙';
+{% endif %}
+
    /* ---- PLAYER CONFIG ---- */
   var PLAYER_COLOR  = "{{ game.player.color if game.player else '#00aa44' }}";
   var PLAYER_SPEED  = {{ game.player.speed if game.player else 8 }};
@@ -1011,10 +1037,23 @@
     // Draw enemies
     for (var ei4 = 0; ei4 < enemies.length; ei4++) {
       var en = enemies[ei4];
-      ctx.fillStyle = en.def.color;
+      var ex4 = en.col * CELL_SIZE + CELL_SIZE / 2;
+      var ey4 = en.row * CELL_SIZE + CELL_SIZE / 2;
+      /* Glowing halo */
+      ctx.save();
+      ctx.shadowColor = en.def.color;
+      ctx.shadowBlur  = 8;
+      ctx.fillStyle   = en.def.color + 'aa';
       ctx.beginPath();
-      ctx.arc(en.col * CELL_SIZE + CELL_SIZE/2, en.row * CELL_SIZE + CELL_SIZE/2, CELL_SIZE * 0.4, 0, Math.PI * 2);
+      ctx.arc(ex4, ey4, CELL_SIZE * 0.44, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
+      /* Emoji icon */
+      var eicon = AI_ICONS[en.def.ai] || '👾';
+      ctx.font          = Math.round(CELL_SIZE * 0.62) + 'px serif';
+      ctx.textAlign     = 'center';
+      ctx.textBaseline  = 'middle';
+      ctx.fillText(eicon, ex4, ey4);
     }
 
 {% if engine.grow_on_eat %}
@@ -1028,10 +1067,22 @@
     }
 {% else %}
     // Draw player
-    ctx.fillStyle = PLAYER_COLOR;
+    var px4 = playerCol * CELL_SIZE + CELL_SIZE / 2;
+    var py4 = playerRow * CELL_SIZE + CELL_SIZE / 2;
+    ctx.save();
+    ctx.shadowColor = PLAYER_COLOR;
+    ctx.shadowBlur  = 12;
+    ctx.fillStyle   = PLAYER_COLOR + 'bb';
     ctx.beginPath();
-    ctx.roundRect(playerCol * CELL_SIZE + 1, playerRow * CELL_SIZE + 1, CELL_SIZE - 2, CELL_SIZE - 2, 3);
+    ctx.roundRect(playerCol * CELL_SIZE + 2, playerRow * CELL_SIZE + 2, CELL_SIZE - 4, CELL_SIZE - 4, 5);
     ctx.fill();
+    ctx.restore();
+    if (PLAYER_ICON) {
+      ctx.font         = Math.round(CELL_SIZE * 0.62) + 'px serif';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(PLAYER_ICON, px4, py4);
+    }
 {% endif %}
 
     drawParticles();
