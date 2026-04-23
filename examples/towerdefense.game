@@ -1,0 +1,49 @@
+game "Tower Defense" {
+    type: towerdefense
+    canvas: 800 x 600
+    fps: 60
+    background: "#1b2838"
+}
+
+towerdefense {
+    cell_size: 40
+    start_gold: 150
+    start_lives: 20
+    wave_count: 10
+    enemies_per_wave: 12
+    enemy_speed: 80
+    enemy_hp: 60
+    enemy_reward: 15
+    enemy_color: "#e53935"
+    path_color: "#8d6e63"
+    ground_color: "#2e7d32"
+    tower "Arrow" {
+        cost: 50
+        damage: 15
+        range: 3.0
+        fire_rate: 1.2
+        color: "#8bc34a"
+        projectile_color: "#cddc39"
+    }
+    tower "Cannon" {
+        cost: 100
+        damage: 40
+        range: 2.5
+        fire_rate: 0.6
+        color: "#607d8b"
+        projectile_color: "#90a4ae"
+    }
+    tower "Laser" {
+        cost: 175
+        damage: 25
+        range: 4.0
+        fire_rate: 2.5
+        color: "#e91e63"
+        projectile_color: "#f48fb1"
+    }
+}
+
+ui {
+    score: top_right
+    lives: top_left
+}

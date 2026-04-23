@@ -1,0 +1,60 @@
+game "Cyber Breakout" {
+    type: breakout
+    canvas: 480 x 600
+    fps: 60
+    background: "#020617"
+}
+
+tiles {
+    tile wall         symbol: "#"  solid: true   color: "#1e293b"
+    tile empty        symbol: "."  solid: false  color: "#020617"
+    tile brick_red    symbol: "R"  solid: true   color: "#ef4444"  collectible: true  score: 30
+    tile brick_orange symbol: "O"  solid: true   color: "#f97316"  collectible: true  score: 20
+    tile brick_yellow symbol: "Y"  solid: true   color: "#eab308"  collectible: true  score: 15
+    tile brick_green  symbol: "G"  solid: true   color: "#22c55e"  collectible: true  score: 10
+    tile brick_blue   symbol: "B"  solid: true   color: "#3b82f6"  collectible: true  score: 5
+    tile paddle_zone  symbol: "P"  solid: false  color: "#020617"  tag: player_spawn
+}
+
+map {
+    cell_size: 32
+    layout: [
+        "###############",
+        "#.............#",
+        "#RRRRRRRRRRRRR#",
+        "#OOOOOOOOOOOOO#",
+        "#YYYYYYYYYYYYY#",
+        "#GGGGGGGGGGGGG#",
+        "#BBBBBBBBBBBBB#",
+        "#.............#",
+        "#.............#",
+        "#.............#",
+        "#.............#",
+        "#.............#",
+        "#.............#",
+        "#.............#",
+        "#.....P.......#",
+        "#.............#",
+        "###############"
+    ]
+}
+
+player {
+    name: "Paddle"
+    spawn: tile "P"
+    shape: square
+    color: "#60a5fa"
+    speed: 9
+    lives: 3
+    controls: arrows | wasd
+}
+
+rules {
+    win: all_dots_collected
+    lose: lives_depleted
+}
+
+ui {
+    score: top_right
+    lives: top_left
+}

@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎮 Game DSL Studio</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0d0d1a;
+    --bg2:      #131326;
+    --bg3:      #1a1a35;
+    --border:   #2a2a50;
+    --accent:   #00ff88;
+    --accent2:  #ff6b6b;
+    --text:     #c8c8e8;
+    --text-dim: #6666aa;
+    --editor-bg:#0a0a18;
+    --editor-fg:#00ff88;
+
+    --type-pacman:      #9b59b6;
+    --type-snake:       #2ecc71;
+    --type-shooter:     #e74c3c;
+    --type-breakout:    #3498db;
+    --type-invaders:    #e67e22;
+    --type-bomberman:   #f39c12;
+    --type-frogger:     #1abc9c;
+    --type-sokoban:     #95a5a6;
+    --type-tetris:      #8e44ad;
+    --type-platformer:  #27ae60;
+    --type-towerdefense:#c0392b;
+    --type-unknown:     #555577;
+  }
+
+  html, body { height: 100%; font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); }
+
+  /* ── TOP BAR ── */
+  #topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 16px; height: 52px;
+    background: var(--bg2); border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #topbar .logo { font-size: 1.3rem; font-weight: 700; color: var(--accent); letter-spacing: .5px; white-space: nowrap; }
+  #topbar .selected-name { flex: 1; color: var(--text-dim); font-size: .9rem; padding-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #topbar .hint { font-size: .75rem; color: var(--text-dim); white-space: nowrap; }
+
+  #btn-run {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 18px; border-radius: 6px; border: none; cursor: pointer;
+    background: var(--accent); color: #000; font-weight: 700; font-size: .9rem;
+    transition: opacity .15s;
+  }
+  #btn-run:hover { opacity: .85; }
+  #btn-run:disabled { opacity: .4; cursor: not-allowed; }
+  #btn-run .spinner { display: none; width: 14px; height: 14px; border: 2px solid #000; border-top-color: transparent; border-radius: 50%; animation: spin .6s linear infinite; }
+  #btn-run.loading .spinner { display: inline-block; }
+  #btn-run.loading .run-label { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #btn-new {
+    padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer;
+    background: transparent; color: var(--text); font-size: .85rem; transition: border-color .15s;
+  }
+  #btn-new:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── MAIN ── */
+  #main {
+    display: flex; height: calc(100vh - 52px - 32px);
+  }
+
+  /* ── SIDEBAR ── */
+  #sidebar {
+    width: 220px; flex-shrink: 0;
+    background: var(--bg2); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #sidebar-header {
+    padding: 12px 14px 8px; font-size: .7rem; font-weight: 700;
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px;
+    border-bottom: 1px solid var(--border);
+  }
+  #game-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+  #game-list::-webkit-scrollbar { width: 4px; }
+  #game-list::-webkit-scrollbar-track { background: transparent; }
+  #game-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .game-card {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 10px 14px; cursor: pointer; border-left: 3px solid transparent;
+    transition: background .1s, border-color .1s;
+  }
+  .game-card:hover { background: var(--bg3); }
+  .game-card.active { background: var(--bg3); border-left-color: var(--accent); }
+  .game-card .gc-name { font-size: .85rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .game-card .gc-type { display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #fff; }
+
+  /* ── EDITOR PANE ── */
+  #editor-pane {
+    flex: 1; display: flex; flex-direction: column;
+    border-right: 1px solid var(--border); min-width: 0;
+  }
+  #editor-header {
+    padding: 8px 14px; background: var(--bg3); border-bottom: 1px solid var(--border);
+    font-size: .75rem; color: var(--text-dim); display: flex; align-items: center; gap: 8px;
+  }
+  #editor-header .dot { width: 8px; height: 8px; background: var(--accent); border-radius: 50%; }
+  #editor-filename { font-weight: 600; color: var(--text); }
+
+  #editor {
+    flex: 1; resize: none; border: none; outline: none;
+    background: var(--editor-bg); color: var(--editor-fg);
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: .85rem; line-height: 1.6; padding: 16px;
+    tab-size: 2;
+  }
+
+  /* ── PREVIEW PANE ── */
+  #preview-pane {
+    width: 420px; flex-shrink: 0; display: flex; flex-direction: column;
+  }
+  #preview-header {
+    padding: 8px 14px; background: var(--bg3); border-bottom: 1px solid var(--border);
+    font-size: .75rem; color: var(--text-dim); display: flex; align-items: center; gap: 8px;
+  }
+
+  #game-frame {
+    flex: 1; border: none; background: #000;
+  }
+
+  #welcome-screen {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; background: var(--editor-bg); color: var(--text-dim);
+  }
+  #welcome-screen .big-icon { font-size: 4rem; }
+  #welcome-screen h2 { font-size: 1.1rem; color: var(--text); }
+  #welcome-screen p { font-size: .85rem; text-align: center; max-width: 260px; line-height: 1.5; }
+
+  /* ── STATUS BAR ── */
+  #statusbar {
+    height: 32px; display: flex; align-items: center; padding: 0 16px; gap: 10px;
+    background: var(--bg2); border-top: 1px solid var(--border);
+    font-size: .75rem; color: var(--text-dim); flex-shrink: 0;
+  }
+  #statusbar .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+  #statusbar.ok .status-dot { background: var(--accent); }
+  #statusbar.error .status-dot { background: var(--accent2); }
+  #statusbar.error #status-text { color: var(--accent2); }
+  #status-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <div class="logo">🎮 Game DSL Studio</div>
+  <div class="selected-name" id="selected-label">No game selected</div>
+  <span class="hint">Ctrl+Enter = Run</span>
+  <button id="btn-new" onclick="newGame()">+ New</button>
+  <button id="btn-run" onclick="runGame()">
+    <div class="spinner"></div>
+    <span class="run-label">▶ Run</span>
+  </button>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+
+  <!-- SIDEBAR -->
+  <div id="sidebar">
+    <div id="sidebar-header">Games</div>
+    <div id="game-list"></div>
+  </div>
+
+  <!-- EDITOR -->
+  <div id="editor-pane">
+    <div id="editor-header">
+      <div class="dot"></div>
+      <span id="editor-filename">untitled.game</span>
+    </div>
+    <textarea id="editor" spellcheck="false" placeholder="Select a game from the sidebar or click + New"></textarea>
+  </div>
+
+  <!-- PREVIEW -->
+  <div id="preview-pane">
+    <div id="preview-header">
+      <span>▣ Preview</span>
+    </div>
+    <div id="welcome-screen">
+      <div class="big-icon">🕹️</div>
+      <h2>Ready to play</h2>
+      <p>Select a game, then click <strong>▶ Run</strong> to generate and launch it here.</p>
+    </div>
+    <iframe id="game-frame" style="display:none"></iframe>
+  </div>
+
+</div>
+
+<!-- STATUS BAR -->
+<div id="statusbar">
+  <div class="status-dot"></div>
+  <span id="status-text">Ready — select a game or create a new one</span>
+</div>
+
+<script>
+var TYPE_COLORS = {
+  pacman:       '#9b59b6',
+  snake:        '#2ecc71',
+  shooter:      '#e74c3c',
+  breakout:     '#3498db',
+  invaders:     '#e67e22',
+  bomberman:    '#f39c12',
+  frogger:      '#1abc9c',
+  sokoban:      '#95a5a6',
+  tetris:       '#8e44ad',
+  platformer:   '#27ae60',
+  towerdefense: '#c0392b',
+};
+
+var NEW_STUB = [
+  'game "My Game" {',
+  '  type: snake',
+  '  canvas: 800x600',
+  '  fps: 60',
+  '  background: "#1a1a2e"',
+  '}',
+  '',
+  'map {',
+  '  cell_size: 20',
+  '}',
+  '',
+  'player {',
+  '  name: "Player"',
+  '  start: (10, 10)',
+  '  color: "#00ff88"',
+  '  speed: 5',
+  '}',
+  '',
+  'food {',
+  '  count: 3',
+  '  color: "#ff6b6b"',
+  '  score: 10',
+  '  respawn: true',
+  '}',
+].join('\n');
+
+var currentStem = null;
+
+function setStatus(msg, state) {
+  var bar = document.getElementById('statusbar');
+  bar.className = state || '';
+  document.getElementById('status-text').textContent = msg;
+}
+
+function typeColor(type) {
+  return TYPE_COLORS[type] || '#555577';
+}
+
+function loadGameList() {
+  fetch('/api/games')
+    .then(function(r) { return r.json(); })
+    .then(function(games) {
+      var list = document.getElementById('game-list');
+      list.innerHTML = '';
+      games.forEach(function(g) {
+        var card = document.createElement('div');
+        card.className = 'game-card';
+        card.dataset.stem = g.stem;
+        card.innerHTML =
+          '<div class="gc-name">' + escHtml(g.name) + '</div>' +
+          '<div class="gc-type" style="background:' + typeColor(g.type) + '">' + escHtml(g.type) + '</div>';
+        card.addEventListener('click', function() { selectGame(g.stem, g.name); });
+        list.appendChild(card);
+      });
+      setStatus('Loaded ' + games.length + ' games', 'ok');
+    })
+    .catch(function(e) { setStatus('Failed to load games: ' + e.message, 'error'); });
+}
+
+function selectGame(stem, name) {
+  currentStem = stem;
+  document.querySelectorAll('.game-card').forEach(function(c) {
+    c.classList.toggle('active', c.dataset.stem === stem);
+  });
+  document.getElementById('selected-label').textContent = name || stem;
+  document.getElementById('editor-filename').textContent = stem + '.game';
+  setStatus('Loading ' + stem + '.game …');
+
+  fetch('/api/games/' + encodeURIComponent(stem))
+    .then(function(r) { return r.text(); })
+    .then(function(src) {
+      document.getElementById('editor').value = src;
+      setStatus('Loaded ' + stem + '.game', 'ok');
+    })
+    .catch(function(e) { setStatus('Error: ' + e.message, 'error'); });
+}
+
+function newGame() {
+  currentStem = null;
+  document.querySelectorAll('.game-card').forEach(function(c) { c.classList.remove('active'); });
+  document.getElementById('selected-label').textContent = 'New Game';
+  document.getElementById('editor-filename').textContent = 'untitled.game';
+  document.getElementById('editor').value = NEW_STUB;
+  setStatus('New game — edit the source and click ▶ Run', '');
+}
+
+function runGame() {
+  var source = document.getElementById('editor').value.trim();
+  if (!source) { setStatus('Editor is empty — write or load a .game model first', 'error'); return; }
+
+  var btn = document.getElementById('btn-run');
+  btn.disabled = true;
+  btn.classList.add('loading');
+  setStatus('Generating …');
+
+  fetch('/api/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: source }),
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      btn.disabled = false;
+      btn.classList.remove('loading');
+      if (data.success) {
+        var frame = document.getElementById('game-frame');
+        var welcome = document.getElementById('welcome-screen');
+        frame.style.display = 'block';
+        welcome.style.display = 'none';
+        frame.src = '/output/' + data.output_name;
+        setStatus('✓ Generated ' + data.output_name + ' — playing in preview', 'ok');
+      } else {
+        setStatus('✗ Error: ' + data.error, 'error');
+      }
+    })
+    .catch(function(e) {
+      btn.disabled = false;
+      btn.classList.remove('loading');
+      setStatus('Request failed: ' + e.message, 'error');
+    });
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+document.getElementById('editor').addEventListener('keydown', function(e) {
+  if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); runGame(); }
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    var ta = e.target, s = ta.selectionStart, end = ta.selectionEnd;
+    ta.value = ta.value.substring(0, s) + '  ' + ta.value.substring(end);
+    ta.selectionStart = ta.selectionEnd = s + 2;
+  }
+});
+
+loadGameList();
+</script>
+</body>
+</html>

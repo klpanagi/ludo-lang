@@ -1,0 +1,80 @@
+game "Pacman" {
+    type: pacman
+    canvas: 560 x 620
+    fps: 60
+    background: "#000000"
+}
+
+tiles {
+    tile wall         symbol: "#"  solid: true   color: "#1a1aff"
+    tile dot          symbol: "."  solid: false  color: "#ffb8ae"  collectible: true  score: 10
+    tile power_pellet symbol: "o"  solid: false  color: "#ffffff"  collectible: true  score: 50
+    tile ghost_house  symbol: "-"  solid: false  color: "#ff69b4"
+    tile empty        symbol: " "  solid: false  color: "#000000"
+}
+
+map {
+    cell_size: 20
+    layout: [
+        "############################",
+        "#............##............#",
+        "#.####.#####.##.#####.####.#",
+        "#o####.#####.##.#####.####o#",
+        "#.####.#####.##.#####.####.#",
+        "#..........................#",
+        "#.####.##.########.##.####.#",
+        "#.####.##.########.##.####.#",
+        "#......##....##....##......#",
+        "######.#####.##.#####.######",
+        "######.#####.##.#####.######",
+        "######.##          ##.######",
+        "######.## ###--### ##.######",
+        "######.## #      # ##.######",
+        "      .   #      #   .      ",
+        "######.## #      # ##.######",
+        "######.## ######## ##.######",
+        "######.##          ##.######",
+        "######.## ######## ##.######",
+        "######.## ######## ##.######",
+        "#............##............#",
+        "#.####.#####.##.#####.####.#",
+        "#o..##................##..o#",
+        "###.##.##.########.##.##.###",
+        "#......##....##....##......#",
+        "#.##########.##.##########.#",
+        "#..........................#",
+        "#.##########.##.##########.#",
+        "#............##............#",
+        "############################"
+    ]
+}
+
+player {
+    name: "PacMan"
+    start: (13, 22)
+    shape: circle
+    color: "#ffff00"
+    speed: 4
+    lives: 3
+    controls: arrows | wasd
+}
+
+actors {
+    enemy "Blinky" { start: (13, 11) color: "#ff0000" speed: 3.5 behavior: chase   release_delay: 0 }
+    enemy "Pinky"  { start: (14, 13) color: "#ffb8ff" speed: 3.5 behavior: ambush  release_delay: 3 }
+    enemy "Inky"   { start: (13, 13) color: "#00ffff" speed: 3.5 behavior: flanker release_delay: 6 }
+    enemy "Clyde"  { start: (15, 13) color: "#ffb852" speed: 3.5 behavior: random  release_delay: 9 }
+}
+
+mechanics {
+    power_duration: 8
+    ghost_eat_score: 200
+    win_condition: all_dots_collected
+    lose_condition: lives_depleted
+}
+
+ui {
+    score: top_left
+    lives: bottom_left
+    level: top_right
+}

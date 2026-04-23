@@ -1,0 +1,27 @@
+game "Neon Tetris" {
+    type: tetris
+    canvas: 320 x 640
+    fps: 60
+    background: "#0d0d1a"
+}
+
+tetris {
+    cols: 10
+    rows: 20
+    cell_size: 30
+    start_speed: 1.0
+    speed_increment: 0.15
+    level_lines: 10
+    piece I color: "#00f5ff"
+    piece O color: "#ffd700"
+    piece T color: "#bf00ff"
+    piece S color: "#00ff88"
+    piece Z color: "#ff3355"
+    piece J color: "#0055ff"
+    piece L color: "#ff8800"
+}
+
+ui {
+    score: top_right
+    level: top_left
+}

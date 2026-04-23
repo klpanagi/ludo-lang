@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ game.name }}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #001a00;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Courier New', monospace;
+    color: #00dd00;
+  }
+  h1 { margin-bottom: 10px; font-size: 24px; color: #00dd00; letter-spacing: 3px; }
+  canvas { border: 2px solid #006600; display: block; }
+  #info { margin-top: 8px; font-size: 13px; color: #004400; }
+</style>
+</head>
+<body>
+<h1>{{ game.name }}</h1>
+<canvas id="gameCanvas" width="{{ game.canvas.width }}" height="{{ game.canvas.height }}"></canvas>
+<div id="info">Arrow Keys / WASD to hop &nbsp;|&nbsp; Reach the goal 5 times to win! &nbsp;|&nbsp; Enter to restart</div>
+<script>
+(function() {
+  'use strict';
+
+  var CELL = {{ game.map.cell_size }};
+  var CANVAS_W = {{ game.canvas.width }};
+  var CANVAS_H = {{ game.canvas.height }};
+  var BG_COLOR = "{{ game.background }}";
+  var PLAYER_COLOR = "{{ game.player.color }}";
+  var PLAYER_LIVES = {{ game.player.lives if game.player.lives else 3 }};
+
+  var TILE_MAP = {};
+  {% if game.tiles %}{% for tile in game.tiles.tiles %}
+  TILE_MAP["{{ tile.symbol }}"] = { solid: {{ 'true' if tile.solid else 'false' }}, color: "{{ tile.color or '#000' }}", name: "{{ tile.name }}" };
+  {% endfor %}{% endif %}
+
+  var RAW_LAYOUT = [{% for row in game.map.layout %}{{ row | tojson }}{% if not loop.last %},{% endif %}{% endfor %}];
+  var PLAYER_SPAWN = { col: {{ player_spawn.col }}, row: {{ player_spawn.row }} };
+  var ROWS = RAW_LAYOUT.length;
+  var COLS = RAW_LAYOUT[0].length;
+
+  var PATROL_ACTORS = [{% for e in enemies %}{
+    name: {{ e.name | tojson }},
+    color: "{{ e.color }}",
+    speed: {{ e.speed }},
+    spawnPositions: [{% for p in e._spawn_positions %}{ col: {{ p.col }}, row: {{ p.row }} }{% if not loop.last %},{% endif %}{% endfor %}],
+    dir: {{ 1 if 'Right' in e.name else -1 }},
+    isLog: {{ 'true' if 'Log' in e.name else 'false' }}
+  }{% if not loop.last %},{% endif %}{% endfor %}];
+
+  var HIGH_SCORE_KEY = 'frogger_high_score_{{ game.name | replace(" ", "_") }}';
+  var highScore = parseInt(localStorage.getItem(HIGH_SCORE_KEY) || '0', 10);
+
+  var canvas = document.getElementById('gameCanvas');
+  var ctx = canvas.getContext('2d');
+
+  var STATE_PLAYING  = 'PLAYING';
+  var STATE_GAMEOVER = 'GAME_OVER';
+  var STATE_WIN      = 'WIN';
+
+  var WIN_CROSSINGS = 5;
+  // Home slots: track which of the 5 goal positions are filled this level
+  var homeSlots = [false, false, false, false, false];
+  var HOME_SLOTS_NEEDED = 5;
+  var level = 1;
+
+  // Determine row types from layout
+  var rowTypes = [];
+  for (var r = 0; r < ROWS; r++) {
+    var firstChar = RAW_LAYOUT[r][0];
+    var tile = TILE_MAP[firstChar] || { name: 'safe_grass' };
+    rowTypes[r] = tile.name;
+  }
+
+  // Also check if any cell in row is water/road
+  for (var r = 0; r < ROWS; r++) {
+    var hasWater = false, hasRoad = false;
+    for (var c = 0; c < COLS; c++) {
+      var ch = RAW_LAYOUT[r][c];
+      var t = TILE_MAP[ch];
+      if (t) {
+        if (t.name === 'water') hasWater = true;
+        if (t.name === 'road') hasRoad = true;
+      }
+    }
+    if (hasWater) rowTypes[r] = 'water';
+    else if (hasRoad) rowTypes[r] = 'road';
+  }
+
+  var player = {};
+  var actors = [];
+  var score = 0;
+  var lives = PLAYER_LIVES;
+  var gameState = STATE_PLAYING;
+  var gameTime = 0;
+  var crossings = 0;
+  var invincTimer = 0;
+  var hopAnim = 0; // hop animation timer
+
+{% include '_behavior_dsl.j2' %}
+  function _ruleHook_loseLife()           { lives = Math.max(0, lives - 1); if (lives <= 0) { gameState = STATE_GAMEOVER; } }
+  function _ruleHook_addPoints(pts)       { score += pts; }
+  function _ruleHook_destroyEnemy()       { /* no enemies */ }
+  function _ruleHook_destroyAllEnemies()  { /* no enemies */ }
+  function _ruleHook_nextLevel()          { initLevel(); }
+  function _ruleHook_spawn(e, l)          { /* no spawn */ }
+
+  function initPlayer() {
+    player = {
+      col: PLAYER_SPAWN.col,
+      row: PLAYER_SPAWN.row,
+      x: PLAYER_SPAWN.col * CELL + CELL / 2,
+      y: PLAYER_SPAWN.row * CELL + CELL / 2,
+      facing: 0, // -1 = up, 1 = down, -2 = left, 2 = right
+      hopScale: 1.0,
+      onLog: null
+    };
+  }
+
+  function initActors() {
+    actors = [];
+    for (var t = 0; t < PATROL_ACTORS.length; t++) {
+      var type = PATROL_ACTORS[t];
+      for (var s = 0; s < type.spawnPositions.length; s++) {
+        var sp = type.spawnPositions[s];
+        var w = type.isLog ? CELL * 2.5 : CELL * 1.5;
+        actors.push({
+          x: sp.col * CELL + CELL / 2,
+          y: sp.row * CELL + CELL / 2,
+          row: sp.row,
+          dir: type.dir,
+          speed: type.speed * CELL,
+          color: type.color,
+          isLog: type.isLog,
+          w: w,
+          h: CELL * 0.7,
+          name: type.name
+        });
+      }
+    }
+  }
+
+  var keys = {};
+  var keyHandled = {};
+  document.addEventListener('keydown', function(e) {
+    if (!keys[e.key]) {
+      keys[e.key] = true;
+      keyHandled[e.key] = false;
+    }
+    if ((gameState === STATE_GAMEOVER || gameState === STATE_WIN) &&
+        (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      restartGame();
+      return;
+    }
+    if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','a','d','w','s'].indexOf(e.key) >= 0) {
+      e.preventDefault();
+    }
+  });
+  document.addEventListener('keyup', function(e) {
+    keys[e.key] = false;
+    keyHandled[e.key] = false;
+  });
+
+  function findGoalSlotIndex(col) {
+    // Find which home slot index this column corresponds to
+    // Scan the goal row for 'G' tiles and find the closest one
+    var goalRow = -1;
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < COLS; c++) {
+        var ch = RAW_LAYOUT[r][c];
+        var t = TILE_MAP[ch];
+        if (t && t.name === 'goal_pad') { goalRow = r; break; }
+      }
+      if (goalRow >= 0) break;
+    }
+    if (goalRow < 0) return -1;
+    // Collect all goal columns
+    var goalCols = [];
+    for (var c2 = 0; c2 < COLS; c2++) {
+      var ch2 = RAW_LAYOUT[goalRow][c2];
+      var t2 = TILE_MAP[ch2];
+      if (t2 && t2.name === 'goal_pad') goalCols.push(c2);
+    }
+    // Find closest goal col to player col
+    var bestIdx = 0;
+    var bestDist = Math.abs(goalCols[0] - col);
+    for (var i = 1; i < goalCols.length; i++) {
+      var d = Math.abs(goalCols[i] - col);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    return bestIdx % HOME_SLOTS_NEEDED;
+  }
+
+  function tryHop(dc, dr) {
+    var nc = player.col + dc;
+    var nr = player.row + dr;
+    if (nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS) return;
+    // Check solid tiles
+    var ch = RAW_LAYOUT[nr][nc];
+    var tile = TILE_MAP[ch] || { solid: false };
+    if (tile.solid) return;
+
+    player.col = nc;
+    player.row = nr;
+    player.x = nc * CELL + CELL / 2;
+    player.y = nr * CELL + CELL / 2;
+    player.onLog = null;
+    hopAnim = 0.12;
+
+    // Score for moving up
+    if (dr < 0) score += 10;
+
+    // Check goal row
+    var ch2 = RAW_LAYOUT[nr][nc];
+    var tile2 = TILE_MAP[ch2] || { name: '' };
+    if (tile2.name === 'goal_pad') {
+      var slotIdx = findGoalSlotIndex(nc);
+      if (slotIdx >= 0 && !homeSlots[slotIdx]) {
+        homeSlots[slotIdx] = true;
+        crossings++;
+        score += 500;
+      } else {
+        // Already filled or invalid — just respawn
+        score += 100;
+      }
+
+      // Check if all slots filled
+      var allFilled = true;
+      for (var s = 0; s < HOME_SLOTS_NEEDED; s++) {
+        if (!homeSlots[s]) { allFilled = false; break; }
+      }
+      if (allFilled || crossings >= WIN_CROSSINGS) {
+        gameState = STATE_WIN;
+        return;
+      }
+      // Respawn
+      player.col = PLAYER_SPAWN.col;
+      player.row = PLAYER_SPAWN.row;
+      player.x = PLAYER_SPAWN.col * CELL + CELL / 2;
+      player.y = PLAYER_SPAWN.row * CELL + CELL / 2;
+    }
+  }
+
+  function processInput() {
+    var dirMap = [
+      { key: 'ArrowUp',    dc: 0, dr: -1 },
+      { key: 'ArrowDown',  dc: 0, dr: 1 },
+      { key: 'ArrowLeft',  dc: -1, dr: 0 },
+      { key: 'ArrowRight', dc: 1, dr: 0 },
+      { key: 'w', dc: 0, dr: -1 },
+      { key: 's', dc: 0, dr: 1 },
+      { key: 'a', dc: -1, dr: 0 },
+      { key: 'd', dc: 1, dr: 0 }
+    ];
+    for (var i = 0; i < dirMap.length; i++) {
+      var d = dirMap[i];
+      if (keys[d.key] && !keyHandled[d.key]) {
+        keyHandled[d.key] = true;
+        tryHop(d.dc, d.dr);
+        return;
+      }
+    }
+  }
+
+  function updateActors(dt) {
+    for (var i = 0; i < actors.length; i++) {
+      var a = actors[i];
+      a.x += a.dir * a.speed * dt;
+
+      // Wrap around
+      if (a.dir > 0 && a.x - a.w / 2 > CANVAS_W) {
+        a.x = -a.w / 2;
+      } else if (a.dir < 0 && a.x + a.w / 2 < 0) {
+        a.x = CANVAS_W + a.w / 2;
+      }
+    }
+  }
+
+  function checkCollisions() {
+    if (invincTimer > 0) return;
+
+    var rowType = rowTypes[player.row];
+    var px = player.x;
+    var py = player.y;
+    var pr = CELL * 0.35;
+
+    if (rowType === 'water') {
+      // Must be on a log
+      var onLog = false;
+      for (var i = 0; i < actors.length; i++) {
+        var a = actors[i];
+        if (!a.isLog) continue;
+        if (a.row !== player.row) continue;
+        var hw = a.w / 2;
+        var hh = a.h / 2;
+        if (px > a.x - hw && px < a.x + hw &&
+            py > a.y - hh - CELL * 0.1 && py < a.y + hh + CELL * 0.1) {
+          onLog = true;
+          player.onLog = a;
+          break;
+        }
+      }
+      if (!onLog) {
+        player.onLog = null;
+        loseLife();
+        return;
+      }
+    } else if (rowType === 'road') {
+      // Check car collision
+      for (var i = 0; i < actors.length; i++) {
+        var a = actors[i];
+        if (a.isLog) continue;
+        if (a.row !== player.row) continue;
+        var hw = a.w / 2;
+        var hh = a.h / 2;
+        if (px > a.x - hw - pr && px < a.x + hw + pr &&
+            py > a.y - hh - pr && py < a.y + hh + pr) {
+          loseLife();
+          return;
+        }
+      }
+    }
+  }
+
+  function loseLife() {
+    lives--;
+    invincTimer = 1.5;
+    if (lives <= 0) {
+      gameState = STATE_GAMEOVER;
+    } else {
+      player.col = PLAYER_SPAWN.col;
+      player.row = PLAYER_SPAWN.row;
+      player.x = PLAYER_SPAWN.col * CELL + CELL / 2;
+      player.y = PLAYER_SPAWN.row * CELL + CELL / 2;
+      player.onLog = null;
+    }
+  }
+
+  function updateLogRiding(dt) {
+    if (player.onLog) {
+      player.x += player.onLog.dir * player.onLog.speed * dt;
+      // Clamp to canvas
+      if (player.x < CELL * 0.5 || player.x > CANVAS_W - CELL * 0.5) {
+        loseLife();
+      }
+    }
+  }
+
+  // Drawing
+  function drawBackground() {
+    for (var r = 0; r < ROWS; r++) {
+      var rowType = rowTypes[r];
+      var py = r * CELL;
+
+      if (rowType === 'water') {
+        // Animated water
+        ctx.fillStyle = '#003366';
+        ctx.fillRect(0, py, CANVAS_W, CELL);
+        // Shimmer
+        ctx.fillStyle = 'rgba(0,100,200,0.3)';
+        for (var c = 0; c < COLS; c++) {
+          var shimmerOffset = Math.sin(gameTime * 2 + c * 0.8) * 3;
+          ctx.fillRect(c * CELL, py + CELL / 2 - 2 + shimmerOffset, CELL - 2, 4);
+        }
+      } else if (rowType === 'road') {
+        ctx.fillStyle = '#2a2a2a';
+        ctx.fillRect(0, py, CANVAS_W, CELL);
+        // Road markings
+        ctx.fillStyle = '#444';
+        ctx.fillRect(0, py + CELL / 2 - 1, CANVAS_W, 2);
+      } else if (rowType === 'goal_pad') {
+        ctx.fillStyle = '#006600';
+        ctx.fillRect(0, py, CANVAS_W, CELL);
+        // Goal markers
+        for (var c = 0; c < COLS; c++) {
+          var ch = RAW_LAYOUT[r][c];
+          if (ch === 'G') {
+            ctx.fillStyle = '#00aa00';
+            ctx.fillRect(c * CELL + 2, py + 2, CELL - 4, CELL - 4);
+            ctx.fillStyle = '#00ff00';
+            ctx.font = 'bold 14px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('G', c * CELL + CELL / 2, py + CELL / 2 + 5);
+            ctx.textAlign = 'left';
+          }
+        }
+      } else {
+        // Safe grass
+        ctx.fillStyle = '#1a3a1a';
+        ctx.fillRect(0, py, CANVAS_W, CELL);
+      }
+    }
+  }
+
+  function drawActors() {
+    for (var i = 0; i < actors.length; i++) {
+      var a = actors[i];
+      var hw = a.w / 2;
+      var hh = a.h / 2;
+      var px = a.x - hw;
+      var py = a.y - hh;
+
+      ctx.save();
+      if (a.isLog) {
+        // Log: brown rounded rect
+        ctx.fillStyle = a.color;
+        ctx.beginPath();
+        ctx.roundRect(px, py, a.w, a.h, 6);
+        ctx.fill();
+        // Wood grain
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 1;
+        for (var g = 1; g < 3; g++) {
+          ctx.beginPath();
+          ctx.moveTo(px + a.w * g / 3, py + 2);
+          ctx.lineTo(px + a.w * g / 3, py + a.h - 2);
+          ctx.stroke();
+        }
+      } else {
+        // Car: colored rect with wheel dots
+        ctx.fillStyle = a.color;
+        ctx.fillRect(px, py, a.w, a.h);
+        // Windshield
+        ctx.fillStyle = 'rgba(200,230,255,0.5)';
+        ctx.fillRect(px + a.w * 0.2, py + 2, a.w * 0.6, a.h * 0.4);
+        // Wheels
+        ctx.fillStyle = '#111';
+        ctx.beginPath();
+        ctx.arc(px + a.w * 0.2, py + a.h, 4, 0, Math.PI * 2);
+        ctx.arc(px + a.w * 0.8, py + a.h, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  function drawPlayer() {
+    if (invincTimer > 0 && Math.floor(gameTime * 8) % 2 === 0) return;
+
+    var x = player.x;
+    var y = player.y;
+    var r = CELL * 0.35 * player.hopScale;
+
+    ctx.save();
+    ctx.shadowColor = PLAYER_COLOR;
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = PLAYER_COLOR;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.35, y - r * 0.3, r * 0.2, 0, Math.PI * 2);
+    ctx.arc(x + r * 0.35, y - r * 0.3, r * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eye shine
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.3, y - r * 0.35, r * 0.08, 0, Math.PI * 2);
+    ctx.arc(x + r * 0.4, y - r * 0.35, r * 0.08, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function drawUI() {
+    ctx.font = 'bold 14px Courier New';
+    ctx.fillStyle = '#00dd00';
+    var scoreText = 'SCORE: ' + score;
+    ctx.fillText(scoreText, CANVAS_W - 8 - ctx.measureText(scoreText).width, 20);
+
+    // Lives as frog icons
+    ctx.font = '14px Courier New';
+    ctx.fillStyle = '#00dd00';
+    for (var li = 0; li < lives; li++) {
+      ctx.fillText('\u25CF', 8 + li * 18, 20);
+    }
+
+    // High score
+    ctx.font = '11px Courier New';
+    ctx.fillStyle = '#ffcc00';
+    var hiText = 'BEST: ' + highScore;
+    ctx.fillText(hiText, CANVAS_W - 8 - ctx.measureText(hiText).width, 34);
+
+    // Home slots display
+    ctx.font = '12px Courier New';
+    ctx.fillStyle = '#004400';
+    var ct = 'HOME: ' + crossings + '/' + HOME_SLOTS_NEEDED + '  LVL:' + level;
+    ctx.fillText(ct, (CANVAS_W - ctx.measureText(ct).width) / 2, 20);
+
+    // Draw home slot indicators at top
+    var slotW = CELL * 0.7;
+    var slotSpacing = CANVAS_W / (HOME_SLOTS_NEEDED + 1);
+    for (var si = 0; si < HOME_SLOTS_NEEDED; si++) {
+      var sx = slotSpacing * (si + 1);
+      var sy = CELL * 0.5;
+      ctx.fillStyle = homeSlots[si] ? '#00ff00' : '#003300';
+      ctx.beginPath();
+      ctx.arc(sx, sy, slotW / 2, 0, Math.PI * 2);
+      ctx.fill();
+      if (homeSlots[si]) {
+        ctx.fillStyle = '#000';
+        ctx.font = '10px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('\u2665', sx, sy + 4);
+        ctx.textAlign = 'left';
+      }
+    }
+  }
+
+  function drawOverlay(title, subtitle, titleColor) {
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 38px Courier New';
+    ctx.fillStyle = titleColor || '#00dd00';
+    ctx.fillText(title, CANVAS_W / 2, CANVAS_H / 2 - 24);
+    ctx.font = '16px Courier New';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(subtitle, CANVAS_W / 2, CANVAS_H / 2 + 20);
+    ctx.textAlign = 'left';
+  }
+
+  function draw() {
+    ctx.fillStyle = BG_COLOR;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    drawBackground();
+    drawActors();
+    drawPlayer();
+    drawUI();
+
+    if (gameState === STATE_GAMEOVER) {
+      drawOverlay('GAME OVER', 'Score: ' + score + '  |  Press Enter to restart', '#ef4444');
+    } else if (gameState === STATE_WIN) {
+      drawOverlay('YOU WIN!', 'Score: ' + score + ' | ' + crossings + ' crossings! | Enter to restart', '#00dd00');
+    }
+  }
+
+  var lastTime = null;
+
+  function gameLoop(timestamp) {
+    if (lastTime === null) lastTime = timestamp;
+    var dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+    lastTime = timestamp;
+    gameTime += dt;
+
+    if (gameState === STATE_PLAYING) {
+      if (invincTimer > 0) invincTimer -= dt;
+      processInput();
+      updateActors(dt);
+      updateLogRiding(dt);
+      checkCollisions();
+      updateRuleTimers(dt);
+      // Update high score
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem(HIGH_SCORE_KEY, highScore);
+      }
+
+      // Hop animation
+      if (hopAnim > 0) {
+        hopAnim -= dt;
+        player.hopScale = 1.0 + Math.sin((0.12 - hopAnim) / 0.12 * Math.PI) * 0.3;
+      } else {
+        player.hopScale = 1.0;
+      }
+    }
+
+    draw();
+    requestAnimationFrame(gameLoop);
+  }
+
+  function restartGame() {
+    score = 0;
+    lives = PLAYER_LIVES;
+    crossings = 0;
+    level = 1;
+    homeSlots = [false, false, false, false, false];
+    gameState = STATE_PLAYING;
+    gameTime = 0;
+    invincTimer = 0;
+    hopAnim = 0;
+    initPlayer();
+    initActors();
+  }
+
+  initPlayer();
+  initActors();
+  requestAnimationFrame(gameLoop);
+
+})();
+</script>
+</body>
+</html>

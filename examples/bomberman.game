@@ -1,0 +1,83 @@
+game "Bomberman" {
+    type: bomberman
+    canvas: 448 x 448
+    fps: 60
+    background: "#0a0a0a"
+}
+
+tiles {
+    tile wall         symbol: "#"  solid: true   color: "#374151"
+    tile soft_wall    symbol: "s"  solid: true   color: "#92400e"
+    tile floor        symbol: "."  solid: false  color: "#111111"
+    tile player_spawn symbol: "P"  solid: false  color: "#111111"  tag: player_spawn
+    tile enemy_spawn  symbol: "E"  solid: false  color: "#111111"  tag: enemy_spawn
+}
+
+map {
+    cell_size: 32
+    layout: [
+        "#############",
+        "#P..s.s.s.s.#",
+        "#.#s#s#s#s#.#",
+        "#...s.s.s...#",
+        "#s#s#s#s#s#s#",
+        "#.s.s.s.s.s.#",
+        "#s#s#E.E#s#s#",
+        "#.s.s.s.s.s.#",
+        "#s#s#s#s#s#s#",
+        "#...s.s.s...#",
+        "#.#s#s#s#s#.#",
+        "#.s.s.s.s...#",
+        "#############"
+    ]
+}
+
+player {
+    name: "Bomber"
+    spawn: tile "P"
+    shape: circle
+    color: "#fbbf24"
+    speed: 4
+    lives: 3
+    controls: arrows | wasd
+    shoot {
+        projectile: Bomb
+        cooldown: 1.5
+        key: space
+    }
+}
+
+actors {
+    enemy "Balloom" {
+        spawn: tile "E"
+        color: "#f87171"
+        speed: 1.5
+        points: 100
+        behavior: random
+    }
+    enemy "Oneal" {
+        spawn: tile "E"
+        color: "#fb923c"
+        speed: 2.5
+        points: 200
+        behavior: chase
+    }
+    projectile "Bomb" {
+        speed: 0
+        color: "#1f2937"
+        direction: from_player
+        on_hit_wall: ignore
+        on_hit_enemy: destroy_all
+    }
+}
+
+rules {
+    win: all_enemies_defeated
+    lose: lives_depleted
+    on_collision player enemy: lose_life
+}
+
+ui {
+    score: top_right
+    lives: top_left
+}

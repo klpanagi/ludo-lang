@@ -1,0 +1,8 @@
+services:
+  studio:
+    build: .
+    image: game-dsl-studio
+    container_name: game-dsl-studio
+    ports:
+      - "8765:8765"
+    restart: unless-stopped

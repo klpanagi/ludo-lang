@@ -1,0 +1,60 @@
+  /* ---- BEHAVIOR DSL INTERPRETER (shared) ---- */
+{% if variables %}
+  var GAME_VARS = {
+{% for v in variables %}
+    {{ v.name }}: {% if v.default_val %}{% if v.type == 'bool' %}{{ 'true' if v.default_val.val else 'false' }}{% else %}{{ v.default_val.val }}{% endif %}{% else %}{% if v.type == 'bool' %}false{% elif v.type == 'float' %}0.0{% else %}0{% endif %}{% endif %}{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  };
+{% else %}
+  var GAME_VARS = {};
+{% endif %}
+  var COLLISION_RULES = [
+{% if game_rules %}{% for rule in game_rules.collision_rules %}
+    { subject: {{ rule.subject | tojson }}, object: {{ rule.object | tojson }}, condition: {% if rule.condition %}{{ rule.condition | ruleConditionToJS }}{% else %}null{% endif %}, actions: [{% for a in rule.actions %}{{ a | extActionToJS }}{% if not loop.last %},{% endif %}{% endfor %}] }{% if not loop.last %},{% endif %}
+
+{% endfor %}{% endif %}
+  ];
+  var TIMER_RULES = [
+{% if game_rules %}{% for rule in game_rules.timer_rules %}
+    { interval: {{ rule.interval }}, elapsed: 0, condition: {% if rule.condition %}{{ rule.condition | ruleConditionToJS }}{% else %}null{% endif %}, actions: [{% for a in rule.actions %}{{ a | extActionToJS }}{% if not loop.last %},{% endif %}{% endfor %}] }{% if not loop.last %},{% endif %}
+
+{% endfor %}{% endif %}
+  ];
+  function evalRuleCond(cond) {
+    if (!cond) return true;
+    var left  = (cond.left.var  !== undefined) ? GAME_VARS[cond.left.var]  : cond.left.val;
+    var right = (cond.right.var !== undefined) ? GAME_VARS[cond.right.var] : cond.right.val;
+    if (cond.op === '==') return left === right;
+    if (cond.op === '!=') return left !== right;
+    if (cond.op === '<')  return left <   right;
+    if (cond.op === '>')  return left >   right;
+    if (cond.op === '<=') return left <=  right;
+    if (cond.op === '>=') return left >=  right;
+    return false;
+  }
+  function execRuleAction(action) {
+    if (action.type === 'set')         { GAME_VARS[action.var] = action.val;              return; }
+    if (action.type === 'lose_life')   { _ruleHook_loseLife();                            return; }
+    if (action.type === 'add_points')  { _ruleHook_addPoints(action.pts || 0);            return; }
+    if (action.type === 'destroy')     { _ruleHook_destroyEnemy();                        return; }
+    if (action.type === 'destroy_all') { _ruleHook_destroyAllEnemies();                   return; }
+    if (action.type === 'next_level')  { _ruleHook_nextLevel();                           return; }
+    if (action.type === 'spawn')       { _ruleHook_spawn(action.entity, action.location); return; }
+  }
+  function fireCollisionRule(subject, object) {
+    COLLISION_RULES.forEach(function(rule) {
+      if (rule.subject === subject && rule.object === object && evalRuleCond(rule.condition)) {
+        rule.actions.forEach(execRuleAction);
+      }
+    });
+  }
+  function updateRuleTimers(dt) {
+    TIMER_RULES.forEach(function(rule) {
+      rule.elapsed += dt;
+      if (rule.elapsed >= rule.interval && evalRuleCond(rule.condition)) {
+        rule.elapsed = 0;
+        rule.actions.forEach(execRuleAction);
+      }
+    });
+  }

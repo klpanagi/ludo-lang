@@ -1,0 +1,92 @@
+game "Shooter Waves" {
+    type: shooter
+    canvas: 672 x 544
+    fps: 60
+    background: "#05050a"
+}
+
+tiles {
+    tile wall         symbol: "#"  solid: true   color: "#1e293b"
+    tile empty        symbol: "."  solid: false  color: "#05050a"
+    tile player_spawn symbol: "P"  solid: false  color: "#05050a"  tag: player_spawn
+    tile enemy_spawn  symbol: "E"  solid: false  color: "#05050a"  tag: enemy_spawn
+}
+
+map {
+    cell_size: 32
+    layout: [
+        "#####################",
+        "#...................#",
+        "#...E.........E....#",
+        "#...................#",
+        "#.####.........####.#",
+        "#...................#",
+        "#...E.....E.....E..#",
+        "#...................#",
+        "#.####.........####.#",
+        "#...................#",
+        "#...E.........E....#",
+        "#...................#",
+        "#.####.........####.#",
+        "#...................#",
+        "#...................#",
+        "#.........P.........#",
+        "#####################"
+    ]
+}
+
+player {
+    name: "Hero"
+    spawn: tile "P"
+    color: "#60a5fa"
+    speed: 6
+    lives: 3
+    controls: arrows | wasd
+    shoot {
+        projectile: Bullet
+        cooldown: 0.2
+        key: space
+    }
+}
+
+actors {
+    enemy "Grunt" {
+        spawn: tile "E"
+        color: "#ef4444"
+        speed: 2.5
+        points: 100
+        behavior: chase
+    }
+    enemy "Flanker" {
+        spawn: tile "E"
+        color: "#f97316"
+        speed: 3.5
+        points: 200
+        behavior: ambush
+    }
+    projectile "Bullet" {
+        speed: 18
+        color: "#fbbf24"
+        direction: from_player
+        on_hit_wall: destroy
+        on_hit_enemy: destroy_all
+    }
+}
+
+rules {
+    win: all_enemies_defeated
+    lose: lives_depleted
+    on_collision player enemy: lose_life
+    on_collision projectile enemy: destroy, add_points
+    on_timer 20.0: next_level, set $wave = 1
+}
+
+variables {
+    var wave: int = 1
+    var enemies_alive: int = 0
+}
+
+ui {
+    score: top_right
+    lives: top_left
+}

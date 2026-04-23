@@ -1,0 +1,90 @@
+game "Frogger" {
+    type: frogger
+    canvas: 416 x 512
+    fps: 60
+    background: "#001a00"
+}
+
+tiles {
+    tile safe_grass   symbol: "#"  solid: false  color: "#1a3a1a"
+    tile road         symbol: "r"  solid: false  color: "#2a2a2a"
+    tile water        symbol: "w"  solid: false  color: "#003366"
+    tile goal_pad     symbol: "G"  solid: false  color: "#006600"
+    tile player_spawn symbol: "P"  solid: false  color: "#1a3a1a"  tag: player_spawn
+    tile car_right    symbol: ">"  solid: false  color: "#2a2a2a"  tag: enemy_spawn
+    tile car_left     symbol: "<"  solid: false  color: "#2a2a2a"  tag: enemy_spawn
+    tile log_right    symbol: ")"  solid: false  color: "#003366"  tag: enemy_spawn
+    tile log_left     symbol: "("  solid: false  color: "#003366"  tag: enemy_spawn
+}
+
+map {
+    cell_size: 32
+    layout: [
+        "#############",
+        "#G.G.G.G.G..#",
+        "#...........#",
+        "w...w...w...w",
+        "w...w...w...w",
+        "w...w...w...w",
+        "#...........#",
+        "r...r...r...r",
+        "r...r...r...r",
+        "r...r...r...r",
+        "#...........#",
+        "#.....P.....#",
+        "w...w...w...w",
+        "#############"
+    ]
+}
+
+player {
+    name: "Frog"
+    spawn: tile "P"
+    shape: circle
+    color: "#00dd00"
+    speed: 8
+    lives: 3
+    controls: arrows | wasd
+}
+
+actors {
+    enemy "CarRight" {
+        spawn: tile ">"
+        color: "#ef4444"
+        speed: 4.0
+        points: 0
+        behavior: patrol
+    }
+    enemy "CarLeft" {
+        spawn: tile "<"
+        color: "#3b82f6"
+        speed: 3.0
+        points: 0
+        behavior: patrol
+    }
+    enemy "LogRight" {
+        spawn: tile ")"
+        color: "#92400e"
+        speed: 2.0
+        points: 0
+        behavior: patrol
+    }
+    enemy "LogLeft" {
+        spawn: tile "("
+        color: "#78350f"
+        speed: 2.5
+        points: 0
+        behavior: patrol
+    }
+}
+
+rules {
+    win: all_enemies_defeated
+    lose: lives_depleted
+    on_collision player enemy: lose_life
+}
+
+ui {
+    score: top_right
+    lives: top_left
+}

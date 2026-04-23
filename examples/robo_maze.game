@@ -1,0 +1,102 @@
+game "Robo-Maze" {
+    type: pacman
+    canvas: 560 x 560
+    fps: 60
+    background: "#020817"
+}
+
+tiles {
+    tile wall         symbol: "#"  solid: true   color: "#1e3a5f"
+    tile dot          symbol: "."  solid: false  color: "#38bdf8"  collectible: true  score: 5
+    tile power_cell   symbol: "o"  solid: false  color: "#f0abfc"  collectible: true  score: 100
+    tile spawn_gate   symbol: "-"  solid: false  color: "#7c3aed"
+    tile empty        symbol: " "  solid: false  color: "#020817"
+}
+
+map {
+    cell_size: 20
+    layout: [
+        "############################",
+        "#o...........##...........o#",
+        "#.##.#####.#.##.#.#####.##.#",
+        "#.##.#####.#.##.#.#####.##.#",
+        "#..........................#",
+        "#.##.##.#########.##.##.##.#",
+        "#....##....######....##....#",
+        "######.##### ## #####.######",
+        "######.##          ##.######",
+        "######.## ###--### ##.######",
+        "      .   #      #   .      ",
+        "######.## ######## ##.######",
+        "######.##          ##.######",
+        "######.## ######## ##.######",
+        "#............##............#",
+        "#.###.######.##.######.###.#",
+        "#o..#..................#..o#",
+        "###.##.##.########.##.##.###",
+        "#......##....##....##......#",
+        "#.##########.##.##########.#",
+        "#..........................#",
+        "#.##########.##.##########.#",
+        "#..........................#",
+        "############################"
+    ]
+}
+
+player {
+    name: "DataRunner"
+    start: (13, 21)
+    shape: circle
+    color: "#38bdf8"
+    speed: 5
+    lives: 3
+    controls: arrows | wasd
+}
+
+actors {
+    enemy "Tracker" {
+        start: (13, 9)
+        color: "#f43f5e"
+        speed: 4.0
+        points: 200
+        behavior: chase
+        release_delay: 0
+    }
+    enemy "Ambusher" {
+        start: (14, 9)
+        color: "#a855f7"
+        speed: 4.5
+        points: 300
+        behavior: ambush
+        release_delay: 4
+    }
+    enemy "Flanker" {
+        start: (13, 10)
+        color: "#fb923c"
+        speed: 4.0
+        points: 400
+        behavior: flanker
+        release_delay: 8
+    }
+    enemy "Rogue" {
+        start: (15, 10)
+        color: "#facc15"
+        speed: 5.0
+        points: 500
+        behavior: random
+        release_delay: 12
+    }
+}
+
+mechanics {
+    power_duration: 5
+    ghost_eat_score: 400
+    win_condition: all_dots_collected
+    lose_condition: lives_depleted
+}
+
+ui {
+    score: top_left
+    lives: bottom_left
+    level: top_right
+}

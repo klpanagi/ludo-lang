@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ game.name }}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #050505;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Courier New', monospace;
+    color: #fff;
+  }
+  h1 { margin-bottom: 10px; font-size: 24px; color: #fbbf24; letter-spacing: 3px; }
+  canvas { border: 2px solid #374151; display: block; }
+  #info { margin-top: 8px; font-size: 13px; color: #555; }
+</style>
+</head>
+<body>
+<h1>{{ game.name }}</h1>
+<canvas id="gameCanvas" width="{{ game.canvas.width }}" height="{{ game.canvas.height }}"></canvas>
+<div id="info">Arrow Keys / WASD to move &nbsp;|&nbsp; Space to place bomb &nbsp;|&nbsp; Enter to restart</div>
+<script>
+(function() {
+  'use strict';
+
+  var CELL = {{ game.map.cell_size }};
+  var CANVAS_W = {{ game.canvas.width }};
+  var CANVAS_H = {{ game.canvas.height }};
+  var BG_COLOR = "{{ game.background }}";
+  var PLAYER_COLOR = "{{ game.player.color }}";
+  var PLAYER_LIVES = {{ game.player.lives if game.player.lives else 3 }};
+  var PLAYER_SPEED = {{ game.player.speed }};
+  var BOMB_COOLDOWN = {{ game.player.shoot.cooldown if game.player.shoot else 1.5 }};
+
+  var TILE_MAP = {};
+  {% if game.tiles %}{% for tile in game.tiles.tiles %}
+  TILE_MAP["{{ tile.symbol }}"] = {
+    solid: {{ 'true' if tile.solid else 'false' }},
+    color: "{{ tile.color or '#000' }}",
+    name: "{{ tile.name }}",
+    destructible: {{ 'true' if tile.name == 'soft_wall' else 'false' }}
+  };
+  {% endfor %}{% endif %}
+
+  var RAW_LAYOUT = [{% for row in game.map.layout %}{{ row | tojson }}{% if not loop.last %},{% endif %}{% endfor %}];
+  var PLAYER_SPAWN = { col: {{ player_spawn.col }}, row: {{ player_spawn.row }} };
+
+  var ENEMY_TYPES = [{% for e in enemies %}{
+    name: {{ e.name | tojson }}, color: "{{ e.color }}", points: {{ e.points or 100 }},
+    speed: {{ e.speed }}, behavior: "{{ e.behavior }}",
+    spawnPositions: [{% for p in e._spawn_positions %}{ col: {{ p.col }}, row: {{ p.row }} }{% if not loop.last %},{% endif %}{% endfor %}]
+  }{% if not loop.last %},{% endif %}{% endfor %}];
+
+  var canvas = document.getElementById('gameCanvas');
+  var ctx = canvas.getContext('2d');
+
+  var ROWS = RAW_LAYOUT.length;
+  var COLS = RAW_LAYOUT[0].length;
+
+  var STATE_PLAYING  = 'PLAYING';
+  var STATE_GAMEOVER = 'GAME_OVER';
+  var STATE_WIN      = 'WIN';
+  var STATE_LEVEL_UP = 'LEVEL_UP';
+
+  var BLAST_RADIUS = 2;
+  var BOMB_FUSE_TIME = 2.5;
+  var EXPLOSION_DURATION = 0.5;
+
+  var level = 1;
+  var levelUpTimer = 0;
+
+  // Player power-up stats
+  var playerMaxBombs = 1;
+  var playerBlastRadius = BLAST_RADIUS;
+  var playerSpeedMult = 1.0;
+
+  // Dropped power-ups
+  var droppedPowerUps = [];
+
+  var grid = [];
+
+  function buildGrid() {
+    grid = [];
+    for (var r = 0; r < ROWS; r++) {
+      grid[r] = [];
+      for (var c = 0; c < COLS; c++) {
+        var ch = (RAW_LAYOUT[r][c] !== undefined) ? RAW_LAYOUT[r][c] : '.';
+        var tile = TILE_MAP[ch] || { solid: false, color: BG_COLOR, name: 'floor', destructible: false };
+        grid[r][c] = {
+          symbol: ch,
+          solid: tile.solid,
+          color: tile.color,
+          name: tile.name,
+          destructible: tile.destructible,
+          eaten: false
+        };
+      }
+    }
+  }
+
+  function isSolid(col, row) {
+    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return true;
+    var cell = grid[row][col];
+    return cell.solid && !cell.eaten;
+  }
+
+  function cellOf(px, py) {
+    return { col: Math.floor(px / CELL), row: Math.floor(py / CELL) };
+  }
+
+  function bfs(startCol, startRow, targetCol, targetRow) {
+    if (startCol === targetCol && startRow === targetRow) return { dx: 0, dy: 0 };
+    var visited = {};
+    var queue = [{ col: startCol, row: startRow, path: [] }];
+    visited[startRow + ',' + startCol] = true;
+    var dirs = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
+    while (queue.length > 0) {
+      var cur = queue.shift();
+      for (var d = 0; d < dirs.length; d++) {
+        var nc = cur.col + dirs[d].dx;
+        var nr = cur.row + dirs[d].dy;
+        var key = nr + ',' + nc;
+        if (visited[key]) continue;
+        if (isSolid(nc, nr)) continue;
+        var newPath = cur.path.concat([dirs[d]]);
+        if (nc === targetCol && nr === targetRow) {
+          return newPath[0] || { dx: 0, dy: 0 };
+        }
+        visited[key] = true;
+        queue.push({ col: nc, row: nr, path: newPath });
+      }
+    }
+    var validDirs = [];
+    for (var i = 0; i < dirs.length; i++) {
+      if (!isSolid(startCol + dirs[i].dx, startRow + dirs[i].dy)) validDirs.push(dirs[i]);
+    }
+    return validDirs.length > 0 ? validDirs[Math.floor(Math.random() * validDirs.length)] : { dx: 0, dy: 0 };
+  }
+
+  var player = {};
+  var enemies = [];
+  var bombs = [];
+  var explosions = [];
+  var score = 0;
+  var lives = PLAYER_LIVES;
+  var gameState = STATE_PLAYING;
+  var gameTime = 0;
+  var bombCooldownTimer = 0;
+  var invincTimer = 0;
+
+{% include '_behavior_dsl.j2' %}
+  function _ruleHook_loseLife()           { lives = Math.max(0, lives - 1); if (lives <= 0) { gameState = STATE_GAMEOVER; } }
+  function _ruleHook_addPoints(pts)       { score += pts; }
+  function _ruleHook_destroyEnemy()       { /* handled per-explosion */ }
+  function _ruleHook_destroyAllEnemies()  { enemies.length = 0; }
+  function _ruleHook_nextLevel()          { initLevel(); }
+  function _ruleHook_spawn(e, l)          { /* no dynamic spawn */ }
+
+  function initPlayer() {
+    player = {
+      x: PLAYER_SPAWN.col * CELL + CELL / 2,
+      y: PLAYER_SPAWN.row * CELL + CELL / 2,
+      dx: 0,
+      dy: 0,
+      nextDx: 0,
+      nextDy: 0,
+      speed: PLAYER_SPEED * CELL * playerSpeedMult,
+      radius: CELL * 0.38
+    };
+  }
+
+  function initEnemies() {
+    enemies = [];
+    for (var t = 0; t < ENEMY_TYPES.length; t++) {
+      var type = ENEMY_TYPES[t];
+      for (var s = 0; s < type.spawnPositions.length; s++) {
+        var sp = type.spawnPositions[s];
+        enemies.push({
+          x: sp.col * CELL + CELL / 2,
+          y: sp.row * CELL + CELL / 2,
+          dx: 0,
+          dy: 0,
+          color: type.color,
+          speed: type.speed * CELL,
+          points: type.points,
+          behavior: type.behavior,
+          radius: CELL * 0.38,
+          moveAccum: Math.random() * 0.5,
+          alive: true
+        });
+      }
+    }
+  }
+
+  var keys = {};
+  document.addEventListener('keydown', function(e) {
+    keys[e.key] = true;
+    if ((gameState === STATE_GAMEOVER || gameState === STATE_WIN) &&
+        (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      restartGame();
+      return;
+    }
+    var dirMap = {
+      'ArrowLeft':  { dx: -1, dy: 0 }, 'ArrowRight': { dx: 1, dy: 0 },
+      'ArrowUp':    { dx: 0, dy: -1 }, 'ArrowDown':  { dx: 0, dy: 1 },
+      'a': { dx: -1, dy: 0 }, 'd': { dx: 1, dy: 0 },
+      'w': { dx: 0, dy: -1 }, 's': { dx: 0, dy: 1 }
+    };
+    if (dirMap[e.key]) {
+      player.nextDx = dirMap[e.key].dx;
+      player.nextDy = dirMap[e.key].dy;
+      e.preventDefault();
+    }
+    if (e.key === ' ') e.preventDefault();
+  });
+  document.addEventListener('keyup', function(e) { keys[e.key] = false; });
+
+  function updatePlayer(dt) {
+    var pxStep = player.speed * dt;
+    var pc = cellOf(player.x, player.y);
+    var cx = pc.col * CELL + CELL / 2;
+    var cy = pc.row * CELL + CELL / 2;
+
+    var SNAP = pxStep + 2;
+    var nearCenter = Math.abs(player.x - cx) < SNAP && Math.abs(player.y - cy) < SNAP;
+    if (nearCenter && (player.nextDx !== player.dx || player.nextDy !== player.dy)) {
+      var nc = pc.col + player.nextDx;
+      var nr = pc.row + player.nextDy;
+      if (!isSolid(nc, nr)) {
+        player.dx = player.nextDx;
+        player.dy = player.nextDy;
+        player.x = cx;
+        player.y = cy;
+      }
+    }
+
+    var pc2 = cellOf(player.x, player.y);
+    var nc2 = pc2.col + player.dx;
+    var nr2 = pc2.row + player.dy;
+    if (player.dx !== 0 || player.dy !== 0) {
+      if (!isSolid(nc2, nr2)) {
+        player.x += player.dx * pxStep;
+        player.y += player.dy * pxStep;
+      } else {
+        player.x = pc2.col * CELL + CELL / 2;
+        player.y = pc2.row * CELL + CELL / 2;
+      }
+    }
+
+    player.x = Math.max(CELL / 2, Math.min(COLS * CELL - CELL / 2, player.x));
+    player.y = Math.max(CELL / 2, Math.min(ROWS * CELL - CELL / 2, player.y));
+  }
+
+  function placeBomb() {
+    if (bombCooldownTimer > 0) return;
+    // Max bombs based on power-up
+    var activeBombs = 0;
+    for (var i = 0; i < bombs.length; i++) { if (!bombs[i].exploded) activeBombs++; }
+    if (activeBombs >= playerMaxBombs) return;
+
+    var pc = cellOf(player.x, player.y);
+    bombCooldownTimer = BOMB_COOLDOWN;
+    bombs.push({
+      col: pc.col,
+      row: pc.row,
+      timer: BOMB_FUSE_TIME,
+      exploded: false,
+      blastRadius: playerBlastRadius
+    });
+  }
+
+  function dropPowerUp(col, row) {
+    if (Math.random() > 0.35) return; // 35% chance
+    var types = ['bomb_up', 'flame_up', 'speed_up'];
+    var type = types[Math.floor(Math.random() * types.length)];
+    droppedPowerUps.push({
+      col: col, row: row,
+      type: type,
+      color: type === 'bomb_up' ? '#f97316' : type === 'flame_up' ? '#ef4444' : '#22c55e',
+      label: type === 'bomb_up' ? 'B+' : type === 'flame_up' ? 'F+' : 'S+',
+      alive: true
+    });
+  }
+
+  function checkPowerUpPickup() {
+    var pc = cellOf(player.x, player.y);
+    for (var i = droppedPowerUps.length - 1; i >= 0; i--) {
+      var p = droppedPowerUps[i];
+      if (!p.alive) { droppedPowerUps.splice(i, 1); continue; }
+      if (p.col === pc.col && p.row === pc.row) {
+        if (p.type === 'bomb_up') playerMaxBombs = Math.min(playerMaxBombs + 1, 5);
+        else if (p.type === 'flame_up') playerBlastRadius = Math.min(playerBlastRadius + 1, 6);
+        else if (p.type === 'speed_up') playerSpeedMult = Math.min(playerSpeedMult + 0.2, 2.0);
+        droppedPowerUps.splice(i, 1);
+      }
+    }
+  }
+
+  function drawDroppedPowerUps() {
+    for (var i = 0; i < droppedPowerUps.length; i++) {
+      var p = droppedPowerUps[i];
+      if (!p.alive) continue;
+      var px = p.col * CELL + 2;
+      var py = p.row * CELL + 2;
+      ctx.save();
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(px, py, CELL - 4, CELL - 4);
+      ctx.font = 'bold 11px Courier New';
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.fillText(p.label, p.col * CELL + CELL / 2, p.row * CELL + CELL / 2 + 4);
+      ctx.textAlign = 'left';
+      ctx.restore();
+    }
+  }
+
+  function explodeBomb(bomb) {
+    bomb.exploded = true;
+    var blastR = bomb.blastRadius || playerBlastRadius;
+    var cells = [{ col: bomb.col, row: bomb.row }];
+    var dirs = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
+
+    for (var d = 0; d < dirs.length; d++) {
+      for (var r = 1; r <= blastR; r++) {
+        var nc = bomb.col + dirs[d].dx * r;
+        var nr = bomb.row + dirs[d].dy * r;
+        if (nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS) break;
+        var cell = grid[nr][nc];
+        if (cell.solid && !cell.eaten) {
+          if (cell.destructible) {
+            cell.eaten = true;
+            cell.solid = false;
+            cells.push({ col: nc, row: nr });
+            dropPowerUp(nc, nr);
+          }
+          break; // stop arm at wall
+        }
+        cells.push({ col: nc, row: nr });
+      }
+    }
+
+    // Add explosion visual
+    explosions.push({
+      cells: cells,
+      timer: EXPLOSION_DURATION
+    });
+
+    // Kill enemies in blast
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[i];
+      if (!e.alive) continue;
+      var ec = cellOf(e.x, e.y);
+      for (var j = 0; j < cells.length; j++) {
+        if (cells[j].col === ec.col && cells[j].row === ec.row) {
+          e.alive = false;
+          score += e.points;
+          break;
+        }
+      }
+    }
+
+    // Kill player in blast
+    if (invincTimer <= 0) {
+      var pc = cellOf(player.x, player.y);
+      for (var k = 0; k < cells.length; k++) {
+        if (cells[k].col === pc.col && cells[k].row === pc.row) {
+          lives--;
+          invincTimer = 1.5;
+          if (lives <= 0) gameState = STATE_GAMEOVER;
+          break;
+        }
+      }
+    }
+
+    checkWin();
+  }
+
+  function updateBombs(dt) {
+    if (bombCooldownTimer > 0) bombCooldownTimer -= dt;
+    for (var i = bombs.length - 1; i >= 0; i--) {
+      var b = bombs[i];
+      if (b.exploded) {
+        bombs.splice(i, 1);
+        continue;
+      }
+      b.timer -= dt;
+      if (b.timer <= 0) {
+        explodeBomb(b);
+      }
+    }
+  }
+
+  function updateExplosions(dt) {
+    for (var i = explosions.length - 1; i >= 0; i--) {
+      explosions[i].timer -= dt;
+      if (explosions[i].timer <= 0) explosions.splice(i, 1);
+    }
+  }
+
+  function isBombDangerCell(col, row) {
+    // Returns true if this cell is in the blast radius of any active bomb
+    for (var b = 0; b < bombs.length; b++) {
+      var bomb = bombs[b];
+      if (bomb.exploded) continue;
+      var blastR = bomb.blastRadius || playerBlastRadius;
+      if (bomb.col === col && bomb.row === row) return true;
+      var dirs = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
+      for (var d = 0; d < dirs.length; d++) {
+        for (var r = 1; r <= blastR; r++) {
+          var nc = bomb.col + dirs[d].dx * r;
+          var nr = bomb.row + dirs[d].dy * r;
+          if (isSolid(nc, nr)) break;
+          if (nc === col && nr === row) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function updateEnemies(dt) {
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[i];
+      if (!e.alive) continue;
+
+      e.moveAccum += dt;
+      var moveInterval = CELL / e.speed;
+      if (e.moveAccum >= moveInterval) {
+        e.moveAccum -= moveInterval;
+        var dir;
+        var ec = cellOf(e.x, e.y);
+        var pc = cellOf(player.x, player.y);
+
+        // BFS-based AI: chase player but avoid bomb blast zones
+        if (e.behavior === 'chase') {
+          // If in danger, flee first
+          if (isBombDangerCell(ec.col, ec.row)) {
+            var safeDirs = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
+            var safeValid = [];
+            for (var sd = 0; sd < safeDirs.length; sd++) {
+              var snc = ec.col + safeDirs[sd].dx;
+              var snr = ec.row + safeDirs[sd].dy;
+              if (!isSolid(snc, snr) && !isBombDangerCell(snc, snr)) safeValid.push(safeDirs[sd]);
+            }
+            dir = safeValid.length > 0 ? safeValid[Math.floor(Math.random() * safeValid.length)] : bfs(ec.col, ec.row, pc.col, pc.row);
+          } else {
+            dir = bfs(ec.col, ec.row, pc.col, pc.row);
+          }
+        } else {
+          var dirs = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
+          var valid = [];
+          var ec2 = cellOf(e.x, e.y);
+          for (var d = 0; d < dirs.length; d++) {
+            var nc2 = ec2.col + dirs[d].dx;
+            var nr2 = ec2.row + dirs[d].dy;
+            if (!isSolid(nc2, nr2) && !isBombDangerCell(nc2, nr2)) valid.push(dirs[d]);
+          }
+          // Fallback: any valid direction
+          if (valid.length === 0) {
+            for (var d2 = 0; d2 < dirs.length; d2++) {
+              if (!isSolid(ec2.col + dirs[d2].dx, ec2.row + dirs[d2].dy)) valid.push(dirs[d2]);
+            }
+          }
+          dir = valid.length > 0 ? valid[Math.floor(Math.random() * valid.length)] : { dx: 0, dy: 0 };
+        }
+        var ec3 = cellOf(e.x, e.y);
+        var nc = ec3.col + dir.dx;
+        var nr = ec3.row + dir.dy;
+        if (!isSolid(nc, nr)) {
+          e.dx = dir.dx;
+          e.dy = dir.dy;
+        }
+      }
+
+      var espeed = e.speed * dt;
+      var ec4 = cellOf(e.x, e.y);
+      var nc2 = ec4.col + e.dx;
+      var nr2 = ec4.row + e.dy;
+      if (!isSolid(nc2, nr2)) {
+        e.x += e.dx * espeed;
+        e.y += e.dy * espeed;
+      }
+
+      e.x = Math.max(CELL / 2, Math.min(COLS * CELL - CELL / 2, e.x));
+      e.y = Math.max(CELL / 2, Math.min(ROWS * CELL - CELL / 2, e.y));
+
+      if (invincTimer <= 0) {
+        var pdist = Math.sqrt(Math.pow(e.x - player.x, 2) + Math.pow(e.y - player.y, 2));
+        if (pdist < CELL * 0.7) {
+          lives--;
+          invincTimer = 1.5;
+          if (lives <= 0) { gameState = STATE_GAMEOVER; return; }
+          initPlayer();
+        }
+      }
+    }
+  }
+
+  function checkWin() {
+    for (var i = 0; i < enemies.length; i++) {
+      if (enemies[i].alive) return;
+    }
+    // Level complete
+    levelUpTimer = 2.0;
+    gameState = STATE_LEVEL_UP;
+  }
+
+  // Drawing
+  function drawGrid() {
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < COLS; c++) {
+        var cell = grid[r][c];
+        var px = c * CELL;
+        var py = r * CELL;
+
+        if (cell.solid && !cell.eaten) {
+          ctx.fillStyle = cell.color;
+          ctx.fillRect(px, py, CELL, CELL);
+
+          if (cell.destructible) {
+            // X pattern for soft walls
+            ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(px + 4, py + 4);
+            ctx.lineTo(px + CELL - 4, py + CELL - 4);
+            ctx.moveTo(px + CELL - 4, py + 4);
+            ctx.lineTo(px + 4, py + CELL - 4);
+            ctx.stroke();
+          } else {
+            ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(px, py, CELL, CELL);
+          }
+        } else {
+          ctx.fillStyle = BG_COLOR;
+          ctx.fillRect(px, py, CELL, CELL);
+        }
+      }
+    }
+  }
+
+  function drawExplosions() {
+    for (var i = 0; i < explosions.length; i++) {
+      var exp = explosions[i];
+      var alpha = exp.timer / EXPLOSION_DURATION;
+      for (var j = 0; j < exp.cells.length; j++) {
+        var c = exp.cells[j];
+        var px = c.col * CELL;
+        var py = c.row * CELL;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#ff6600';
+        ctx.fillRect(px + 2, py + 2, CELL - 4, CELL - 4);
+        ctx.fillStyle = '#ffcc00';
+        ctx.fillRect(px + 6, py + 6, CELL - 12, CELL - 12);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawBombs() {
+    for (var i = 0; i < bombs.length; i++) {
+      var b = bombs[i];
+      if (b.exploded) continue;
+      var px = b.col * CELL + CELL / 2;
+      var py = b.row * CELL + CELL / 2;
+      var r = CELL * 0.38;
+
+      ctx.save();
+      ctx.shadowColor = '#ff6600';
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = '#1f2937';
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Fuse
+      var fuseFlicker = Math.floor(gameTime * 8) % 2 === 0;
+      ctx.strokeStyle = fuseFlicker ? '#ff6600' : '#ffcc00';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(px, py - r);
+      ctx.lineTo(px + 4, py - r - 6);
+      ctx.stroke();
+
+      // Fuse tip
+      ctx.fillStyle = fuseFlicker ? '#ffcc00' : '#ff6600';
+      ctx.beginPath();
+      ctx.arc(px + 4, py - r - 6, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  function drawPlayer() {
+    if (invincTimer > 0 && Math.floor(gameTime * 8) % 2 === 0) return;
+
+    ctx.save();
+    ctx.shadowColor = PLAYER_COLOR;
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = PLAYER_COLOR;
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(player.x - player.radius * 0.3, player.y - player.radius * 0.2, player.radius * 0.18, 0, Math.PI * 2);
+    ctx.arc(player.x + player.radius * 0.3, player.y - player.radius * 0.2, player.radius * 0.18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawEnemies() {
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[i];
+      if (!e.alive) continue;
+
+      ctx.save();
+      ctx.shadowColor = e.color;
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = e.color;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(e.x - e.radius * 0.3, e.y - e.radius * 0.2, e.radius * 0.2, 0, Math.PI * 2);
+      ctx.arc(e.x + e.radius * 0.3, e.y - e.radius * 0.2, e.radius * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function drawOverlay(title, subtitle, titleColor) {
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 38px Courier New';
+    ctx.fillStyle = titleColor || '#fbbf24';
+    ctx.fillText(title, CANVAS_W / 2, CANVAS_H / 2 - 24);
+    ctx.font = '16px Courier New';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(subtitle, CANVAS_W / 2, CANVAS_H / 2 + 20);
+    ctx.textAlign = 'left';
+  }
+
+  function drawUI() {
+    ctx.font = 'bold 14px Courier New';
+    ctx.fillStyle = '#ffffff';
+    var scoreText = 'SCORE: ' + score;
+    var livesText = 'LIVES: ' + lives;
+    ctx.fillText(scoreText, CANVAS_W - 8 - ctx.measureText(scoreText).width, 20);
+    ctx.fillText(livesText, 8, 20);
+
+    var aliveCount = 0;
+    for (var i = 0; i < enemies.length; i++) { if (enemies[i].alive) aliveCount++; }
+    ctx.font = '12px Courier New';
+    ctx.fillStyle = '#555';
+    var et = 'LVL ' + level + '  ENEMIES: ' + aliveCount;
+    ctx.fillText(et, (CANVAS_W - ctx.measureText(et).width) / 2, 20);
+
+    // Power-up stats
+    ctx.font = '10px Courier New';
+    ctx.fillStyle = '#f97316';
+    ctx.fillText('B:' + playerMaxBombs, 8, CANVAS_H - 8);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillText('F:' + playerBlastRadius, 30, CANVAS_H - 8);
+    ctx.fillStyle = '#22c55e';
+    ctx.fillText('S:' + playerSpeedMult.toFixed(1) + 'x', 52, CANVAS_H - 8);
+  }
+
+  function draw() {
+    ctx.fillStyle = BG_COLOR;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    drawGrid();
+    drawDroppedPowerUps();
+    drawExplosions();
+    drawBombs();
+    drawEnemies();
+    drawPlayer();
+    drawUI();
+
+    if (gameState === STATE_GAMEOVER) {
+      drawOverlay('GAME OVER', 'Score: ' + score + '  |  Press Enter to restart', '#ef4444');
+    } else if (gameState === STATE_WIN) {
+      drawOverlay('YOU WIN!', 'Score: ' + score + '  Level ' + level + '  |  Press Enter to restart', '#22c55e');
+    } else if (gameState === STATE_LEVEL_UP) {
+      var flashAlpha = 0.4 + 0.2 * Math.sin(gameTime * 8);
+      ctx.fillStyle = 'rgba(251,191,36,' + flashAlpha + ')';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 30px Courier New';
+      ctx.fillStyle = '#000';
+      ctx.fillText('LEVEL ' + level + ' CLEARED!', CANVAS_W / 2, CANVAS_H / 2 - 16);
+      ctx.font = '18px Courier New';
+      ctx.fillText('Level ' + (level + 1) + ' incoming...', CANVAS_W / 2, CANVAS_H / 2 + 16);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  var lastTime = null;
+
+  function gameLoop(timestamp) {
+    if (lastTime === null) lastTime = timestamp;
+    var dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+    lastTime = timestamp;
+    gameTime += dt;
+
+    if (gameState === STATE_PLAYING) {
+      if (invincTimer > 0) invincTimer -= dt;
+      updatePlayer(dt);
+      if (keys[' ']) placeBomb();
+      updateBombs(dt);
+      updateExplosions(dt);
+      updateEnemies(dt);
+      checkPowerUpPickup();
+      updateRuleTimers(dt);
+    } else if (gameState === STATE_LEVEL_UP) {
+      levelUpTimer -= dt;
+      if (levelUpTimer <= 0) {
+        level++;
+        bombs = [];
+        explosions = [];
+        droppedPowerUps = [];
+        buildGrid();
+        initPlayer();
+        initEnemies();
+        gameState = STATE_PLAYING;
+      }
+    }
+
+    draw();
+    requestAnimationFrame(gameLoop);
+  }
+
+  function restartGame() {
+    score = 0;
+    lives = PLAYER_LIVES;
+    level = 1;
+    playerMaxBombs = 1;
+    playerBlastRadius = BLAST_RADIUS;
+    playerSpeedMult = 1.0;
+    gameState = STATE_PLAYING;
+    gameTime = 0;
+    invincTimer = 0;
+    bombCooldownTimer = 0;
+    bombs = [];
+    explosions = [];
+    droppedPowerUps = [];
+    levelUpTimer = 0;
+    buildGrid();
+    initPlayer();
+    initEnemies();
+  }
+
+  buildGrid();
+  initPlayer();
+  initEnemies();
+  requestAnimationFrame(gameLoop);
+
+})();
+</script>
+</body>
+</html>

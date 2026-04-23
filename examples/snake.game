@@ -1,0 +1,71 @@
+game "Snake" {
+    type: snake
+    canvas: 600 x 600
+    fps: 60
+    background: "#1a1a2e"
+}
+
+map {
+    cell_size: 20
+    layout: [
+        "##############################",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "##############################"
+    ]
+}
+
+player {
+    name: "Snake"
+    start: (15, 15)
+    shape: square
+    color: "#00aa00"
+    speed: 8
+    controls: arrows | wasd
+    start_length: 3
+    start_direction: right
+    head_color: "#00cc00"
+    grow_on_eat: true
+}
+
+food {
+    count: 1
+    color: "#ff4444"
+    score: 10
+    respawn: true
+}
+
+mechanics {
+    collision: wall | self
+    lose_condition: collision_detected
+}
+
+ui {
+    score: top_left
+}

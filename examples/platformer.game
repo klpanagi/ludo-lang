@@ -1,0 +1,33 @@
+game "Pixel Runner" {
+    type: platformer
+    canvas: 800 x 450
+    fps: 60
+    background: "#1a1a2e"
+}
+
+player {
+    name: "Hero"
+    start: (100, 300)
+    shape: square
+    color: "#4fc3f7"
+    speed: 220
+    lives: 3
+    controls: arrows | wasd
+}
+
+platformer {
+    gravity: 900
+    jump_force: 420
+    scroll_speed: 180
+    coin_score: 50
+    enemy_score: 100
+    platform_color: "#2d5a27"
+    coin_color: "#ffd700"
+    enemy_color: "#e53935"
+    ground_color: "#3e2723"
+}
+
+ui {
+    score: top_right
+    lives: top_left
+}

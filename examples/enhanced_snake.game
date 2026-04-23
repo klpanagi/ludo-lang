@@ -1,0 +1,110 @@
+game "Enhanced Snake" {
+    type: snake
+    canvas: 600 x 600
+    fps: 60
+    background: "#0d1117"
+}
+
+map {
+    cell_size: 20
+    layout: [
+        "##############################",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "##############################"
+    ]
+}
+
+player {
+    name: "Serpent"
+    start: (15, 15)
+    shape: square
+    color: "#00aa44"
+    speed: 8
+    controls: arrows | wasd
+    start_length: 3
+    start_direction: right
+    head_color: "#00ff66"
+    grow_on_eat: true
+}
+
+food {
+    count: 1
+    color: "#ff4444"
+    score: 10
+    respawn: true
+}
+
+mechanics {
+    collision: wall | self
+    lose_condition: collision_detected
+}
+
+sounds {
+    sound eat {
+        type: beep
+        frequency: 660
+        duration: 0.08
+        volume: 0.3
+    }
+    sound die {
+        type: explosion
+        duration: 0.35
+        volume: 0.5
+    }
+    sound level_up {
+        type: sweep_up
+        frequency: 300
+        duration: 0.25
+        volume: 0.35
+    }
+}
+
+items {
+    item speed_boost {
+        symbol: "⚡"
+        color: "#facc15"
+        score: 20
+        effect: speed_up
+        duration: 3.0
+        drop_chance: 0.20
+    }
+    item star {
+        symbol: "★"
+        color: "#a855f7"
+        score: 50
+        effect: score_multiply
+        duration: 5.0
+        drop_chance: 0.10
+    }
+}
+
+ui {
+    score: top_left
+}
