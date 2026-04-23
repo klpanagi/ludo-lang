@@ -1,0 +1,80 @@
+game "Dungeon Escape" {
+    canvas: 480x480
+    fps: 60
+    background: "#0d0d1a"
+}
+
+engine {
+    type: grid
+    movement: continuous
+}
+
+entities {
+    entity wall {
+        type: solid
+        symbol: "#"
+        color: "#3d2b1f"
+    }
+    entity skeleton {
+        type: enemy
+        spawn: "S"
+        color: "#c8c8c8"
+        speed: 1.5
+        ai: chase
+        points: 100
+    }
+    entity shade {
+        type: enemy
+        spawn: "G"
+        color: "#7b3fa0"
+        speed: 1.0
+        ai: random
+        points: 50
+    }
+    entity portal {
+        type: target
+        symbol: "X"
+        color: "#00ffcc"
+        solid: false
+    }
+}
+
+map {
+    layout: [
+        "###############",
+        "#P  G    S    #",
+        "#             #",
+        "# G   #####   #",
+        "#     #   #   #",
+        "#   S #   # G #",
+        "#     #   #   #",
+        "#     #####   #",
+        "#     G   S   #",
+        "#         G   #",
+        "#   S         #",
+        "#         G   #",
+        "# S       S   #",
+        "#           X #",
+        "###############"
+    ]
+}
+
+player {
+    name: "Adventurer"
+    spawn: "P"
+    color: "#f59e0b"
+    speed: 4
+    lives: 3
+    controls: arrows
+}
+
+rules {
+    win: reached_exit
+    lose: lives_depleted
+    on_collision player enemy: lose_life
+}
+
+ui {
+    score: top_right
+    lives: top_left
+}

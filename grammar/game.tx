@@ -1,28 +1,27 @@
 /*
- * Unified 2D Game DSL
- * Supports: pacman | snake | shooter
+ * Ludo Game DSL — Generic Engine Edition
+ *
+ * Engine types:
+ *   grid      — tile-based: snake, pacman, bomberman, sokoban, frogger, invaders, tetris
+ *   top_down  — free 2D movement: shooter, towerdefense
+ *   platformer — side-scrolling with gravity/jump
+ *   physics   — ball-physics: breakout
  */
 
 GameModel:
     (imports+=ImportDirective | uses+=UseDirective)*
     'game' name=STRING '{'
-        'type:' type=GameType
         ('canvas:' canvas=CanvasSize)?
         ('fps:' fps=INT)?
         ('background:' background=STRING)?
     '}'
     (imports+=ImportDirective | uses+=UseDirective)*
-    (tiles=TilesDef)?
+    (engine=EngineDef)?
+    (entities=EntitiesDef)?
     (map=MapDef)?
     (player=PlayerDef)?
-    (actors=ActorsDef)?
-    (food=FoodDef)?
-    (mechanics=MechanicsDef)?
     (rules=RulesDef)?
     (variables=VariablesDef)?
-    (tetris_config=TetrisConfig)?
-    (platformer_config=PlatformerConfig)?
-    (towerdefense_config=TowerDefenseConfig)?
     (levels=LevelsDef)?
     (sounds=SoundsDef)?
     (animations=AnimationsDef)?
@@ -30,94 +29,112 @@ GameModel:
     (ui=UIDef)?
 ;
 
-GameType: 'pacman' | 'snake' | 'shooter' | 'breakout' | 'invaders' | 'bomberman' | 'frogger' | 'sokoban' | 'tetris' | 'platformer' | 'towerdefense';
+CanvasSize: width=INT 'x' height=INT;
 
-/* ---- TETRIS CONFIG ---- */
-TetrisConfig:
-    'tetris' '{'
-        ('cols:' cols=INT)?
-        ('rows:' rows=INT)?
+/* ---- ENGINE ---- */
+
+EngineDef:
+    'engine' '{'
+        'type:' engine_type=EngineType
+        /* Grid engine flags */
         ('cell_size:' cell_size=INT)?
-        ('start_speed:' start_speed=NUMBER)?
-        ('speed_increment:' speed_increment=NUMBER)?
-        ('level_lines:' level_lines=INT)?
-        (colors+=TetrisColorDef)*
-    '}'
-;
-
-TetrisColorDef:
-    'piece' piece_name=TetrisPieceName 'color:' color=STRING
-;
-
-TetrisPieceName: 'I' | 'O' | 'T' | 'S' | 'Z' | 'J' | 'L';
-
-/* ---- PLATFORMER CONFIG ---- */
-PlatformerConfig:
-    'platformer' '{'
+        ('movement:' movement=GridMovement)?
+        ('wrap_edges:' wrap_edges=BOOL)?
+        ('grow_on_eat:' grow_on_eat=BOOL)?
+        ('dot_collection:' dot_collection=BOOL)?
+        ('ghost_ai:' ghost_ai=GhostAIMode)?
+        ('bomb_system:' bomb_system=BOOL)?
+        ('blast_radius:' blast_radius=INT)?
+        ('fuse_time:' fuse_time=NUMBER)?
+        ('push_mechanics:' push_mechanics=BOOL)?
+        ('lane_obstacles:' lane_obstacles=BOOL)?
+        /* Top-down engine flags */
+        ('shooting:' shooting=BOOL)?
+        ('ai_enemies:' ai_enemies=BOOL)?
+        ('tower_placement:' tower_placement=BOOL)?
+        ('wave_system:' wave_system=BOOL)?
+        ('wave_count:' wave_count=INT)?
+        ('enemies_per_wave:' enemies_per_wave=INT)?
+        ('start_gold:' start_gold=INT)?
+        ('enemy_hp:' enemy_hp=INT)?
+        ('enemy_reward:' enemy_reward=INT)?
+        /* Platformer engine flags */
         ('gravity:' gravity=NUMBER)?
         ('jump_force:' jump_force=NUMBER)?
         ('scroll_speed:' scroll_speed=NUMBER)?
         ('coin_score:' coin_score=INT)?
         ('enemy_score:' enemy_score=INT)?
-        ('platform_color:' platform_color=STRING)?
-        ('coin_color:' coin_color=STRING)?
-        ('enemy_color:' enemy_color=STRING)?
-        ('ground_color:' ground_color=STRING)?
+        /* Physics engine flags */
+        ('ball_speed:' ball_speed=NUMBER)?
+        ('paddle_speed:' paddle_speed=NUMBER)?
+        ('ball_size:' ball_size=INT)?
     '}'
 ;
 
-/* ---- TOWER DEFENSE CONFIG ---- */
-TowerDefenseConfig:
-    'towerdefense' '{'
-        ('cell_size:' cell_size=INT)?
-        ('start_gold:' start_gold=INT)?
-        ('start_lives:' start_lives=INT)?
-        ('wave_count:' wave_count=INT)?
-        ('enemies_per_wave:' enemies_per_wave=INT)?
-        ('enemy_speed:' enemy_speed=NUMBER)?
-        ('enemy_hp:' enemy_hp=INT)?
-        ('enemy_reward:' enemy_reward=INT)?
-        ('enemy_color:' enemy_color=STRING)?
-        ('path_color:' path_color=STRING)?
-        ('ground_color:' ground_color=STRING)?
-        (towers+=TowerTypeDef)*
-        (path_layout+=STRING[','])?
+EngineType: 'grid' | 'top_down' | 'platformer' | 'physics';
+GridMovement: 'continuous' | 'step' | 'formation' | 'falling';
+GhostAIMode: 'pathfinding' | 'simple' | 'none';
+
+/* ---- ENTITIES (unified: tiles + actors + food) ---- */
+
+EntitiesDef:
+    'entities' '{'
+        entities+=EntityDef*
     '}'
 ;
 
-TowerTypeDef:
-    'tower' name=STRING '{'
-        'cost:' cost=INT
-        'damage:' damage=INT
-        'range:' range=NUMBER
-        'fire_rate:' fire_rate=NUMBER
-        'color:' color=STRING
-        ('projectile_color:' projectile_color=STRING)?
-    '}'
-;
-
-CanvasSize: width=INT 'x' height=INT;
-
-/* ---- TILES ---- */
-TilesDef:
-    ('tiles' | 'tileset') '{'
-        tiles+=TileDef
-    '}'
-;
-
-TileDef:
-    'tile' name=ID
-        'symbol:' symbol=STRING
-        ('solid:' solid=BOOL)?
+EntityDef:
+    'entity' name=ID '{'
+        'type:' entity_type=EntityType
+        ('symbol:' symbol=STRING)?
+        ('spawn:' spawn_symbol=STRING)?
         ('color:' color=STRING)?
-        ('collectible:' collectible=BOOL)?
+        ('solid:' solid=BOOL)?
+        ('speed:' speed=NUMBER)?
+        ('ai:' ai=AIType)?
+        ('count:' count=INT)?
         ('score:' score=INT)?
-        ('tag:' tag=TagType)?
+        ('points:' points=INT)?
+        ('respawn:' respawn=BOOL)?
+        ('tag:' tag=EntityTag)?
+        ('effect:' effect=EntityEffect)?
+        ('duration:' duration=NUMBER)?
+        ('direction:' direction=EntityDir)?
+        ('on_hit_wall:' on_hit_wall=HitAction)?
+        ('on_hit_entity:' on_hit_entity=HitAction)?
+        ('blast_radius:' blast_radius=INT)?
+        ('fuse_time:' fuse_time=NUMBER)?
+        ('release_delay:' release_delay=NUMBER)?
+        ('drop_chance:' drop_chance=NUMBER)?
+    '}'
 ;
 
-TagType: 'player_spawn' | 'enemy_spawn' | 'pushable' | 'target';
+EntityType:
+    'solid' | 'open' | 'collectible' | 'enemy' | 'projectile' |
+    'pickup' | 'obstacle' | 'target' | 'explosive'
+;
+
+AIType:
+    'chase' | 'formation' | 'random' | 'patrol' |
+    'pathfinding' | 'ambush' | 'none'
+;
+
+EntityTag:
+    'player_spawn' | 'enemy_spawn' | 'pushable' | 'target' |
+    'food_spawn' | 'path'
+;
+
+EntityDir: 'from_player' | 'up' | 'down' | 'left' | 'right';
+HitAction: 'destroy_all' | 'destroy' | 'bounce' | 'ignore';
+
+EntityEffect:
+    'speed_up' | 'slow_down' | 'invincible' | 'extra_life' |
+    'score_multiply' | 'power_up' | 'weapon_upgrade' |
+    'wide_paddle' | 'multi_ball'
+;
 
 /* ---- MAP ---- */
+
 MapDef:
     'map' '{'
         ('cell_size:' cell_size=INT)?
@@ -132,12 +149,13 @@ MapDef:
 ;
 
 /* ---- PLAYER ---- */
+
 PlayerDef:
     'player' '{'
         'name:' name=STRING
         (
             ('start:' '(' start_x=INT ',' start_y=INT ')') |
-            ('spawn:' 'tile' spawn_tile=STRING)
+            ('spawn:' spawn_symbol=STRING)
         )
         ('shape:' shape=ShapeType)?
         'color:' color=STRING
@@ -147,7 +165,6 @@ PlayerDef:
         ('start_length:' start_length=INT)?
         ('start_direction:' start_direction=DirectionType)?
         ('head_color:' head_color=STRING)?
-        ('grow_on_eat:' grow_on_eat=BOOL)?
         (shoot=ShootDef)?
     '}'
 ;
@@ -169,66 +186,8 @@ ControlList:
 ;
 ControlScheme: 'arrows' | 'wasd';
 
-/* ---- ACTORS (enemies + projectiles) ---- */
-ActorsDef:
-    'actors' '{'
-        actors+=ActorDef
-    '}'
-;
+/* ---- RULES ---- */
 
-ActorDef: EnemyDef | ProjectileDef;
-
-EnemyDef:
-    'enemy' name=STRING '{'
-        (
-            ('start:' '(' start_x=INT ',' start_y=INT ')') |
-            ('spawn:' 'tile' spawn_tile=STRING)
-        )
-        'color:' color=STRING
-        'speed:' speed=NUMBER
-        ('points:' points=INT)?
-        'behavior:' behavior=BehaviorType
-        ('release_delay:' release_delay=NUMBER)?
-    '}'
-;
-
-BehaviorType: 'chase' | 'ambush' | 'flanker' | 'random' | 'formation' | 'patrol';
-
-ProjectileDef:
-    'projectile' name=STRING '{'
-        'speed:' speed=NUMBER
-        'color:' color=STRING
-        ('direction:' direction=ProjectileDir)?
-        ('on_hit_wall:' on_hit_wall=HitAction)?
-        ('on_hit_enemy:' on_hit_enemy=HitAction)?
-    '}'
-;
-
-ProjectileDir: 'from_player' | 'up' | 'down' | 'left' | 'right';
-HitAction: 'destroy_all' | 'destroy' | 'bounce' | 'ignore';
-
-/* ---- FOOD (snake only) ---- */
-FoodDef:
-    'food' '{'
-        'count:' count=INT
-        'color:' color=STRING
-        'score:' score=INT
-        'respawn:' respawn=BOOL
-    '}'
-;
-
-/* ---- MECHANICS (pacman legacy) ---- */
-MechanicsDef:
-    'mechanics' '{'
-        ('power_duration:' power_duration=NUMBER)?
-        ('ghost_eat_score:' ghost_eat_score=INT)?
-        ('win_condition:' win_condition=WinConditionType)?
-        ('collision:' collision=CollisionList)?
-        ('lose_condition:' lose_condition=LoseConditionType)?
-    '}'
-;
-
-/* ---- RULES (shooter-style declarative) ---- */
 RulesDef:
     'rules' '{'
         ('win:' win=WinConditionType)?
@@ -239,7 +198,7 @@ RulesDef:
 ;
 
 CollisionRule:
-    'on_collision' subject=ActorRef object=ActorRef
+    'on_collision' subject=ID object=ID
     ('when' condition=RuleCondition)?
     ':' actions+=ExtRuleAction (',' actions+=ExtRuleAction)*
 ;
@@ -255,34 +214,39 @@ RuleCondition:
 ;
 
 CondOperand: VarRef | BoolLit | NumLit;
-
 VarRef: '$' name=ID;
 BoolLit: val=BoolKeyword;
 BoolKeyword: 'true' | 'false';
 NumLit: val=NUMBER;
-
 CompOp: '==' | '!=' | '<=' | '>=' | '<' | '>';
 
 ExtRuleAction: SetVarAction | SpawnAction | SimpleRuleAction;
-
 SimpleRuleAction: action=SimpleActionType;
 
-SimpleActionType: 'lose_life' | 'destroy_all' | 'destroy' | 'add_points' | 'next_level';
+SimpleActionType:
+    'lose_life' | 'destroy' | 'destroy_all' | 'add_points' | 'next_level' |
+    'collect' | 'grow' | 'push' | 'explode' | 'power_up' |
+    'next_wave' | 'game_over'
+;
 
 SetVarAction: 'set' '$' var_name=ID '=' value=VarLitVal;
 
-SpawnAction: 'spawn' entity=ID 'at' location=SpawnLocation;
-
-SpawnLocation: 'random' | 'player';
+SpawnAction: 'spawn' entity=ID 'at' loc_type=SpawnLocType ('(' spawn_symbol=STRING ')')?;
+SpawnLocType: 'random' | 'player' | 'symbol';
 
 VarLitVal: BoolLit | NumLit;
 
-ActorRef: 'player' | 'enemy' | 'projectile' | 'wall';
+WinConditionType:
+    'all_dots_collected' | 'all_enemies_defeated' |
+    'all_targets_filled' | 'survival' | 'reached_exit'
+;
 
-WinConditionType: 'all_dots_collected' | 'all_enemies_defeated';
-LoseConditionType: 'lives_depleted' | 'collision_detected';
+LoseConditionType:
+    'lives_depleted' | 'collision_detected' | 'time_expired'
+;
 
 /* ---- VARIABLES ---- */
+
 VariablesDef:
     'variables' '{'
         vars+=VarDef
@@ -290,17 +254,13 @@ VariablesDef:
 ;
 
 VarDef:
-    'var' name=ID ':' type=VarType ('=' default_val=VarLitVal)?
+    type=VarType name=ID ('=' default_val=VarLitVal)?
 ;
 
 VarType: 'int' | 'float' | 'bool';
 
-CollisionList:
-    targets+=CollisionTarget ('|' targets+=CollisionTarget)*
-;
-CollisionTarget: 'wall' | 'self';
-
 /* ---- LEVELS ---- */
+
 LevelsDef:
     'levels' '{'
         levels+=LevelEntry
@@ -317,6 +277,7 @@ LevelEntry:
 ;
 
 /* ---- SOUNDS ---- */
+
 SoundsDef:
     'sounds' '{'
         sounds+=SoundEntry
@@ -335,6 +296,7 @@ SoundEntry:
 SoundType: 'beep' | 'noise' | 'sweep_up' | 'sweep_down' | 'explosion';
 
 /* ---- ANIMATIONS ---- */
+
 AnimationsDef:
     'animations' '{'
         animations+=AnimationEntry
@@ -352,7 +314,8 @@ AnimationEntry:
 
 AnimationEffect: 'flash' | 'explode' | 'sparkle' | 'shake' | 'fade';
 
-/* ---- ITEMS (drops) ---- */
+/* ---- ITEMS (power-up drops) ---- */
+
 ItemsDef:
     'items' '{'
         items+=ItemEntry
@@ -370,14 +333,19 @@ ItemEntry:
     '}'
 ;
 
-ItemEffect: 'speed_up' | 'slow_down' | 'invincible' | 'extra_life' | 'score_multiply' | 'weapon_upgrade' | 'wide_paddle' | 'multi_ball';
+ItemEffect:
+    'speed_up' | 'slow_down' | 'invincible' | 'extra_life' |
+    'score_multiply' | 'weapon_upgrade' | 'wide_paddle' | 'multi_ball'
+;
 
 /* ---- UI ---- */
+
 UIDef:
     'ui' '{'
         ('score:' score_pos=UIPosition)?
         ('lives:' lives_pos=UIPosition)?
         ('level:' level_pos=UIPosition)?
+        ('gold:' gold_pos=UIPosition)?
     '}'
 ;
 
@@ -386,7 +354,8 @@ UIPosition:
     'bottom_left' | 'bottom_right' | 'bottom_center'
 ;
 
-/* ---- BEHAVIOR IMPORT DIRECTIVES ---- */
+/* ---- IMPORT / USE DIRECTIVES ---- */
+
 ImportDirective:
     'import' path=STRING
 ;

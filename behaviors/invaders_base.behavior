@@ -1,35 +1,22 @@
 ruleset InvadersBase {
-  tiles {
-    tile wall         symbol: "#"  solid: true   color: "#111111"
-    tile empty        symbol: "."  solid: false  color: "#000000"
-    tile player_spawn symbol: "P"  solid: false  color: "#000000"  tag: player_spawn
-    tile alien_spawn  symbol: "A"  solid: false  color: "#000000"  tag: enemy_spawn
-    tile barrier_top  symbol: "^"  solid: true   color: "#00ff41"
-    tile barrier_mid  symbol: "-"  solid: true   color: "#00cc33"
-  }
-  actors {
-    enemy "Invader" {
-      spawn: tile "A"
-      color: "#00ffff"
-      speed: 1.5
-      points: 100
-      behavior: formation
+    engine {
+        type: grid
+        movement: formation
     }
-    projectile "Laser" {
-      speed: 16
-      color: "#00ff41"
-      direction: from_player
-      on_hit_wall: destroy
-      on_hit_enemy: destroy_all
+    entities {
+        entity invader      { type: enemy      spawn: "I"  color: "#a855f7"  speed: 1.0  ai: formation  points: 10 }
+        entity bullet       { type: projectile  color: "#fbbf24"  speed: 18  direction: from_player  on_hit_wall: destroy  on_hit_entity: destroy }
+        entity enemy_bullet { type: projectile  color: "#f87171"  speed: 8   direction: down  on_hit_wall: destroy  on_hit_entity: destroy }
     }
-  }
-  rules {
-    win: all_enemies_defeated
-    lose: lives_depleted
-    on_collision player enemy: lose_life
-  }
-  ui {
-    score: top_right
-    lives: top_left
-  }
+    rules {
+        win: all_enemies_defeated
+        lose: lives_depleted
+        on_collision bullet invader: destroy, add_points
+        on_collision player invader: lose_life
+        on_collision enemy_bullet player: lose_life
+    }
+    ui {
+        score: top_right
+        lives: top_left
+    }
 }

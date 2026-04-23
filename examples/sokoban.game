@@ -1,55 +1,68 @@
 game "Sokoban" {
-    type: sokoban
-    canvas: 448 x 448
+    canvas: 200x160
     fps: 60
     background: "#1a1a2e"
 }
 
-tiles {
-    tile wall          symbol: "#"  solid: true   color: "#334155"
-    tile floor         symbol: "."  solid: false  color: "#0f172a"
-    tile box           symbol: "B"  solid: true   color: "#92400e"  tag: pushable
-    tile target        symbol: "T"  solid: false  color: "#0f172a"  tag: target
-    tile box_on_target symbol: "X"  solid: true   color: "#15803d"  tag: pushable
-    tile player_spawn  symbol: "P"  solid: false  color: "#0f172a"  tag: player_spawn
+engine {
+    type: grid
+    cell_size: 20
+    movement: step
+    push_mechanics: true
+}
+
+entities {
+    entity wall {
+        type: solid
+        symbol: "#"
+        color: "#4a5568"
+    }
+    entity box {
+        type: obstacle
+        symbol: "B"
+        color: "#d97706"
+        tag: pushable
+    }
+    entity target {
+        type: target
+        symbol: "X"
+        color: "#22c55e"
+        tag: target
+    }
+    entity box_on_target {
+        type: target
+        symbol: "O"
+        color: "#86efac"
+    }
 }
 
 map {
-    cell_size: 32
+    cell_size: 20
     layout: [
-        "#############",
-        "#...........#",
-        "#..#.....#..#",
-        "#..#.B.B.#..#",
-        "#..#.....#..#",
-        "#...T...T...#",
-        "#...........#",
-        "#.....P.....#",
-        "#..#.....#..#",
-        "#..#.B.B.#..#",
-        "#..#.....#..#",
-        "#...T...T...#",
-        "#...........#",
-        "#############"
+        "##########",
+        "#   #    #",
+        "# B   B  #",
+        "#   #    #",
+        "## ##X X ##",
+        "#   B    #",
+        "#P  X    #",
+        "##########"
     ]
 }
 
 player {
-    name: "Pusher"
-    spawn: tile "P"
-    shape: circle
+    name: "Worker"
+    spawn: "P"
     color: "#60a5fa"
-    speed: 8
+    speed: 1
     lives: 1
-    controls: arrows | wasd
 }
 
 rules {
-    win: all_dots_collected
-    lose: lives_depleted
+    win: all_targets_filled
+    on_collision player box: push
 }
 
 ui {
-    score: top_right
-    lives: top_left
+    score: top_left
 }

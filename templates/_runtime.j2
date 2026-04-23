@@ -23,14 +23,56 @@
 
   // Shared overlay function — uses _RT_W / _RT_H set by each template
   function drawOverlay(title, subtitle, titleColor) {
-    ctx.fillStyle = 'rgba(0,0,0,0.72)';
+    var t = Date.now() / 1000;
+    var ac = titleColor || '{{ OVERLAY_COLOR | default("#60a5fa") }}';
+
+    // Dim the entire canvas
+    ctx.fillStyle = 'rgba(0,0,0,0.80)';
     ctx.fillRect(0, 0, _RT_W, _RT_H);
+
+    // Card panel
+    var cw = Math.min(_RT_W - 48, 380);
+    var ch = 148;
+    var cx2 = (_RT_W - cw) / 2;
+    var cy2 = (_RT_H - ch) / 2;
+
+    ctx.fillStyle = 'rgba(8,8,20,0.97)';
+    ctx.roundRect(cx2, cy2, cw, ch, 10);
+    ctx.fill();
+
+    // Card border in accent color
+    ctx.save();
+    ctx.globalAlpha = 0.50;
+    ctx.strokeStyle = ac;
+    ctx.lineWidth = 1.5;
+    ctx.roundRect(cx2, cy2, cw, ch, 10);
+    ctx.stroke();
+    ctx.restore();
+
+    // Thin separator line
+    ctx.save();
+    ctx.globalAlpha = 0.20;
+    ctx.strokeStyle = ac;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx2 + 24, cy2 + 76);
+    ctx.lineTo(cx2 + cw - 24, cy2 + 76);
+    ctx.stroke();
+    ctx.restore();
+
+    // Title
     ctx.textAlign = 'center';
-    ctx.font = 'bold 36px Courier New';
-    ctx.fillStyle = titleColor || '{{ OVERLAY_COLOR | default("#60a5fa") }}';
-    ctx.fillText(title, _RT_W / 2, _RT_H / 2 - 20);
-    ctx.font = '18px Courier New';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(subtitle, _RT_W / 2, _RT_H / 2 + 20);
+    ctx.font = 'bold 28px Courier New';
+    ctx.fillStyle = ac;
+    ctx.fillText(title, _RT_W / 2, cy2 + 52);
+
+    // Subtitle — gently pulsing
+    ctx.save();
+    ctx.globalAlpha = 0.45 + 0.55 * Math.abs(Math.sin(t * 2.6));
+    ctx.font = '13px Courier New';
+    ctx.fillStyle = '#d1d5db';
+    ctx.fillText(subtitle, _RT_W / 2, cy2 + 110);
+    ctx.restore();
+
     ctx.textAlign = 'left';
   }

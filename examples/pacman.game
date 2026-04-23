@@ -1,16 +1,46 @@
 game "Pacman" {
-    type: pacman
-    canvas: 560 x 620
+    canvas: 560x620
     fps: 60
     background: "#000000"
 }
 
-tiles {
-    tile wall         symbol: "#"  solid: true   color: "#1a1aff"
-    tile dot          symbol: "."  solid: false  color: "#ffb8ae"  collectible: true  score: 10
-    tile power_pellet symbol: "o"  solid: false  color: "#ffffff"  collectible: true  score: 50
-    tile ghost_house  symbol: "-"  solid: false  color: "#ff69b4"
-    tile empty        symbol: " "  solid: false  color: "#000000"
+engine {
+    type: grid
+    cell_size: 20
+    movement: continuous
+    dot_collection: true
+    ghost_ai: pathfinding
+}
+
+entities {
+    entity wall {
+        type: solid
+        symbol: "#"
+        color: "#1e3a5f"
+    }
+    entity dot {
+        type: collectible
+        symbol: "."
+        color: "#ffb8ae"
+        score: 10
+        respawn: false
+    }
+    entity pellet {
+        type: pickup
+        symbol: "o"
+        color: "#ffffff"
+        score: 50
+        effect: invincible
+        duration: 8.0
+    }
+    entity ghost {
+        type: enemy
+        spawn: "G"
+        color: "#ff0000"
+        speed: 3.0
+        ai: pathfinding
+        points: 200
+    }
 }
 
 map {
@@ -28,14 +58,14 @@ map {
         "######.#####.##.#####.######",
         "######.#####.##.#####.######",
         "######.##          ##.######",
-        "######.## ###--### ##.######",
-        "######.## #      # ##.######",
-        "      .   #      #   .      ",
-        "######.## #      # ##.######",
-        "######.## ######## ##.######",
-        "######.##          ##.######",
-        "######.## ######## ##.######",
-        "######.## ######## ##.######",
+        "######.## ###GGG### ##.######",
+        "######.## #       # ##.######",
+        "      .   #       #   .      ",
+        "######.## #       # ##.######",
+        "######.## ######### ##.######",
+        "######.##           ##.######",
+        "######.## ######### ##.######",
+        "######.## ######### ##.######",
         "#............##............#",
         "#.####.#####.##.#####.####.#",
         "#o..##................##..o#",
@@ -43,7 +73,7 @@ map {
         "#......##....##....##......#",
         "#.##########.##.##########.#",
         "#..........................#",
-        "#.##########.##.##########.#",
+        "#.##########P##.##########.#",
         "#............##............#",
         "############################"
     ]
@@ -52,29 +82,26 @@ map {
 player {
     name: "PacMan"
     start: (13, 22)
-    shape: circle
     color: "#ffff00"
     speed: 4
     lives: 3
-    controls: arrows | wasd
 }
 
-actors {
-    enemy "Blinky" { start: (13, 11) color: "#ff0000" speed: 3.5 behavior: chase   release_delay: 0 }
-    enemy "Pinky"  { start: (14, 13) color: "#ffb8ff" speed: 3.5 behavior: ambush  release_delay: 3 }
-    enemy "Inky"   { start: (13, 13) color: "#00ffff" speed: 3.5 behavior: flanker release_delay: 6 }
-    enemy "Clyde"  { start: (15, 13) color: "#ffb852" speed: 3.5 behavior: random  release_delay: 9 }
+rules {
+    win: all_dots_collected
+    lose: lives_depleted
+    on_collision player dot: collect, add_points
+    on_collision player pellet: collect, add_points, set $powered = true
+    on_collision player ghost when $powered == true: destroy, add_points
+    on_collision player ghost when $powered == false: lose_life
+    on_timer 8.0: set $powered = false
 }
 
-mechanics {
-    power_duration: 8
-    ghost_eat_score: 200
-    win_condition: all_dots_collected
-    lose_condition: lives_depleted
+variables {
+    bool powered = false
 }
 
 ui {
     score: top_left
-    lives: bottom_left
-    level: top_right
+    lives: top_right
 }

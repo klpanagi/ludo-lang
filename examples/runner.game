@@ -1,0 +1,88 @@
+game "Endless Runner" {
+    canvas: 800x400
+    fps: 60
+    background: "#1a1a2e"
+}
+
+engine {
+    type: platformer
+    gravity: 900.0
+    jump_force: 480.0
+    scroll_speed: 120.0
+}
+
+entities {
+    entity ground {
+        type: solid
+        symbol: "#"
+        color: "#2d4a22"
+    }
+    entity platform {
+        type: solid
+        symbol: "="
+        color: "#4a7a3a"
+    }
+    entity spike {
+        type: enemy
+        spawn: "S"
+        color: "#ef4444"
+        speed: 0.0
+        ai: none
+        points: 0
+    }
+    entity coin {
+        type: collectible
+        symbol: "C"
+        color: "#fbbf24"
+        score: 10
+    }
+    entity gem {
+        type: collectible
+        symbol: "G"
+        color: "#a855f7"
+        score: 50
+    }
+    entity exit {
+        type: open
+        symbol: "E"
+        color: "#00ffcc"
+    }
+}
+
+map {
+    cell_size: 32
+    layout: [
+        "                                        E         ",
+        "                                   =========      ",
+        "         C            G                           ",
+        "      ========     ======    C                    ",
+        "  C          S           ========                 ",
+        "=====   ========   S                 C     S      ",
+        "                ========     =========  ======    ",
+        "   C   G                  C                       ",
+        "=======   =========  =======  ========   ======   ",
+        "##################################################"
+    ]
+}
+
+player {
+    name: "Runner"
+    spawn: "P"
+    color: "#60a5fa"
+    speed: 6
+    lives: 3
+    controls: arrows
+}
+
+rules {
+    win: reached_exit
+    lose: lives_depleted
+    on_collision player coin: collect, add_points
+    on_collision player gem: collect, add_points
+    on_collision player spike: lose_life
+}
+
+ui {
+    score: top_left
+    lives: top_right
+}

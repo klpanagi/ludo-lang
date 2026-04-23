@@ -8,3 +8,8 @@ __pycache__/
 .venv/
 venv/
 examples/_temp_preview.game
+.playwright-mcp/
+screenshots/
+*.jpg
+*.png
+*.bak

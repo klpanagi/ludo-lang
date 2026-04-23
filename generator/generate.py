@@ -5,11 +5,11 @@ from textx import metamodel_from_file
 from jinja2 import Environment, FileSystemLoader
 
 
-def resolve_spawn_positions(layout, tile_symbol):
+def resolve_spawn_positions(layout, spawn_symbol):
     positions = []
     for r, row in enumerate(layout):
         for c, ch in enumerate(row):
-            if ch == tile_symbol:
+            if ch == spawn_symbol:
                 positions.append({"col": c, "row": r})
     return positions
 
@@ -59,13 +59,16 @@ def ext_action_to_js(action):
             + "}"
         )
     elif cls == "SpawnAction":
-        return (
+        result = (
             '{"type": "spawn", "entity": '
             + json.dumps(action.entity)
-            + ', "location": '
-            + json.dumps(action.location)
-            + "}"
+            + ', "loc_type": '
+            + json.dumps(action.loc_type)
         )
+        if action.spawn_symbol:
+            result += ', "spawn_symbol": ' + json.dumps(action.spawn_symbol)
+        result += "}"
+        return result
     return "{}"
 
 
@@ -86,42 +89,18 @@ def load_rulesets(model_file, imports):
 
 
 def merge_ruleset(game, ruleset):
-    """
-    Merge ruleset sections into game model.
-    Merge semantics per section type:
-      - List sections (tiles, actors, sounds, animations, items, levels):
-          ruleset items prepended to game items (game items take precedence order-wise)
-      - Single sections (map, player, food, mechanics, ui):
-          game wins — only apply ruleset value if game doesn't have it
-      - rules: merge collision_rules and timer_rules lists;
-               game's win/lose conditions win over ruleset's
-      - variables: combine; on name conflict, game's variable wins
-    """
-    # --- tiles (list) ---
-    if ruleset.tiles and ruleset.tiles.tiles:
-        if game.tiles:
-            game.tiles.tiles = list(ruleset.tiles.tiles) + list(game.tiles.tiles)
+    if ruleset.entities and ruleset.entities.entities:
+        if game.entities:
+            existing_names = {e.name for e in game.entities.entities}
+            new_entities = [
+                e for e in ruleset.entities.entities if e.name not in existing_names
+            ]
+            game.entities.entities = new_entities + list(game.entities.entities)
         else:
-            game.tiles = ruleset.tiles
-
-    # --- actors (list) ---
-    if ruleset.actors and ruleset.actors.actors:
-        if game.actors:
-            game.actors.actors = list(ruleset.actors.actors) + list(game.actors.actors)
-        else:
-            game.actors = ruleset.actors
+            game.entities = ruleset.entities
 
     # --- single-value sections: game wins ---
-    for attr in (
-        "map",
-        "player",
-        "food",
-        "mechanics",
-        "ui",
-        "tetris_config",
-        "platformer_config",
-        "towerdefense_config",
-    ):
+    for attr in ("engine", "map", "player", "ui"):
         rs_val = getattr(ruleset, attr, None)
         g_val = getattr(game, attr, None)
         if rs_val and not g_val:
@@ -153,13 +132,12 @@ def merge_ruleset(game, ruleset):
             game.variables = ruleset.variables
 
     # --- list-extension sections ---
-    list_sections = [
+    for section_attr, items_attr in [
         ("sounds", "sounds"),
         ("animations", "animations"),
         ("items", "items"),
         ("levels", "levels"),
-    ]
-    for section_attr, items_attr in list_sections:
+    ]:
         rs_sec = getattr(ruleset, section_attr, None)
         g_sec = getattr(game, section_attr, None)
         if rs_sec:
@@ -170,6 +148,53 @@ def merge_ruleset(game, ruleset):
                     setattr(g_sec, items_attr, list(rs_items) + list(g_items))
                 else:
                     setattr(game, section_attr, rs_sec)
+
+
+def build_entity_context(entities_def, layout):
+    if not entities_def:
+        return []
+
+    result = []
+    for e in entities_def.entities:
+        ent = {
+            "name": e.name,
+            "entity_type": e.entity_type,
+            "symbol": e.symbol or "",
+            "spawn_symbol": e.spawn_symbol or "",
+            "color": e.color or "#888888",
+            "solid": bool(e.solid) or (e.entity_type == "solid"),
+            "speed": e.speed,
+            "ai": e.ai or "none",
+            "count": e.count,
+            "score": e.score,
+            "points": e.points,
+            "respawn": e.respawn,
+            "tag": e.tag or "",
+            "effect": e.effect or "",
+            "duration": e.duration,
+            "direction": e.direction or "",
+            "on_hit_wall": e.on_hit_wall or "",
+            "on_hit_entity": e.on_hit_entity or "",
+            "blast_radius": e.blast_radius,
+            "fuse_time": e.fuse_time,
+            "release_delay": e.release_delay,
+            "drop_chance": e.drop_chance,
+            "spawn_positions": [],
+        }
+        if e.spawn_symbol and layout:
+            ent["spawn_positions"] = resolve_spawn_positions(layout, e.spawn_symbol)
+        result.append(ent)
+    return result
+
+
+def build_symbol_map(entities):
+    sym_map = {}
+    for ent in entities:
+        for key in ("symbol", "spawn_symbol"):
+            sym = ent.get(key)
+            if sym and sym not in sym_map:
+                sym_map[sym] = ent["name"]
+    return sym_map
 
 
 def main():
@@ -209,34 +234,28 @@ def main():
 
     layout = game.map.layout if game.map else []
 
-    enemies = []
-    projectiles = []
-    if game.actors:
-        for actor in game.actors.actors:
-            cls = actor.__class__.__name__
-            if cls == "EnemyDef":
-                if actor.spawn_tile:
-                    positions = resolve_spawn_positions(layout, actor.spawn_tile)
-                    actor._spawn_positions = positions
-                else:
-                    actor._spawn_positions = [
-                        {"col": actor.start_x, "row": actor.start_y}
-                    ]
-                enemies.append(actor)
-            elif cls == "ProjectileDef":
-                projectiles.append(actor)
+    entities = build_entity_context(game.entities, layout)
+    symbol_map = build_symbol_map(entities)
 
     player_spawn = None
-    if game.player and getattr(game.player, "spawn_tile", None):
-        positions = resolve_spawn_positions(layout, game.player.spawn_tile)
-        player_spawn = positions[0] if positions else {"col": 0, "row": 0}
+    if game.player:
+        if getattr(game.player, "spawn_symbol", None):
+            positions = resolve_spawn_positions(layout, game.player.spawn_symbol)
+            player_spawn = positions[0] if positions else {"col": 0, "row": 0}
+        elif getattr(game.player, "start_x", 0) or getattr(game.player, "start_y", 0):
+            player_spawn = {"col": game.player.start_x, "row": game.player.start_y}
 
     env = Environment(loader=FileSystemLoader(templates_dir), autoescape=False)
     env.filters["ruleConditionToJS"] = rule_condition_to_js
     env.filters["extActionToJS"] = ext_action_to_js
 
-    game_type = game.type
-    template = env.get_template(f"{game_type}.html.j2")
+    engine_type = game.engine.engine_type if game.engine else "grid"
+    template = env.get_template(f"{engine_type}.html.j2")
+
+    _engine_cell = getattr(game.engine, "cell_size", None) if game.engine else None
+    _map_cell = getattr(game.map, "cell_size", None) if game.map else None
+    _default_cell = 20 if engine_type in ("grid", "physics") else 32
+    cell_size = _engine_cell or _map_cell or _default_cell
 
     os.makedirs(output_dir, exist_ok=True)
     game_name = game.name.lower().replace(" ", "_").replace("-", "_")
@@ -244,9 +263,12 @@ def main():
 
     html = template.render(
         game=game,
-        enemies=enemies,
-        projectiles=projectiles,
+        engine=game.engine,
+        entities=entities,
+        symbol_map=symbol_map,
+        layout=layout,
         player_spawn=player_spawn,
+        cell_size=cell_size,
         levels=game.levels.levels if game.levels else [],
         sounds=game.sounds.sounds if game.sounds else [],
         animations=game.animations.animations if game.animations else [],

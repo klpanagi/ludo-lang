@@ -1,33 +1,80 @@
-game "Pixel Runner" {
-    type: platformer
-    canvas: 800 x 450
+game "Platformer" {
+    canvas: 800x500
     fps: 60
-    background: "#1a1a2e"
+    background: "#87ceeb"
+}
+
+engine {
+    type: platformer
+    gravity: 900.0
+    jump_force: 420.0
+    scroll_speed: 0.0
+}
+
+entities {
+    entity ground {
+        type: solid
+        symbol: "#"
+        color: "#5c4033"
+    }
+    entity platform {
+        type: solid
+        symbol: "="
+        color: "#8b7355"
+    }
+    entity coin {
+        type: collectible
+        symbol: "C"
+        color: "#ffd700"
+        score: 10
+    }
+    entity goomba {
+        type: enemy
+        spawn: "G"
+        color: "#8B4513"
+        speed: 2.0
+        ai: patrol
+        points: 50
+    }
+    entity exit {
+        type: open
+        symbol: "E"
+        color: "#00ff00"
+    }
+}
+
+map {
+    cell_size: 32
+    layout: [
+        "                        E     ",
+        "                   ========   ",
+        "         C    C               ",
+        "      ========                ",
+        "  C                    G      ",
+        "=====    ======    ========   ",
+        "                              ",
+        "   G          C               ",
+        "========  =========  ======   ",
+        "##############################"
+    ]
 }
 
 player {
     name: "Hero"
-    start: (100, 300)
-    shape: square
-    color: "#4fc3f7"
-    speed: 220
+    spawn: "P"
+    color: "#e63946"
+    speed: 5
     lives: 3
-    controls: arrows | wasd
 }
 
-platformer {
-    gravity: 900
-    jump_force: 420
-    scroll_speed: 180
-    coin_score: 50
-    enemy_score: 100
-    platform_color: "#2d5a27"
-    coin_color: "#ffd700"
-    enemy_color: "#e53935"
-    ground_color: "#3e2723"
+rules {
+    win: reached_exit
+    lose: lives_depleted
+    on_collision player coin: collect, add_points
+    on_collision player goomba: lose_life
 }
 
 ui {
-    score: top_right
-    lives: top_left
+    score: top_left
+    lives: top_right
 }

@@ -1,71 +1,77 @@
 game "Snake" {
-    type: snake
-    canvas: 600 x 600
+    canvas: 400x400
     fps: 60
-    background: "#1a1a2e"
+    background: "#0d1117"
+}
+
+engine {
+    type: grid
+    cell_size: 20
+    movement: continuous
+    wrap_edges: false
+    grow_on_eat: true
+}
+
+entities {
+    entity wall {
+        type: solid
+        symbol: "#"
+        color: "#334455"
+    }
+    entity food {
+        type: collectible
+        symbol: "F"
+        color: "#ff4444"
+        count: 1
+        score: 10
+        respawn: true
+    }
 }
 
 map {
     cell_size: 20
     layout: [
-        "##############################",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "#                            #",
-        "##############################"
+        "####################",
+        "#                  #",
+        "#                  #",
+        "#                  #",
+        "#                  #",
+        "#                  #",
+        "#                  #",
+        "#                  #",
+        "#                  #",
+        "#        P         #",
+        "#                  #",
+        "#                  #",
+        "#                  #",
+        "#                  #",
+        "#                  #",
+        "#                  #",
+        "#                  #",
+        "#                  #",
+        "#                  #",
+        "####################"
     ]
 }
 
 player {
-    name: "Snake"
-    start: (15, 15)
-    shape: square
-    color: "#00aa00"
+    name: "Serpent"
+    spawn: "P"
+    color: "#00aa44"
     speed: 8
-    controls: arrows | wasd
+    lives: 1
     start_length: 3
     start_direction: right
-    head_color: "#00cc00"
-    grow_on_eat: true
+    head_color: "#00ff66"
 }
 
-food {
-    count: 1
-    color: "#ff4444"
-    score: 10
-    respawn: true
-}
-
-mechanics {
-    collision: wall | self
-    lose_condition: collision_detected
+rules {
+    lose: lives_depleted
+    on_collision player wall: lose_life
+    on_collision player food: collect, add_points, grow
 }
 
 ui {
     score: top_left
+    lives: top_right
 }

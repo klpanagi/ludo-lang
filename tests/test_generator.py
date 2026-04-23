@@ -9,7 +9,7 @@ GENERATOR = ROOT / "generator" / "generate.py"
 PYTHON = sys.executable
 
 ALL_EXAMPLES = sorted(EXAMPLES_DIR.glob("*.game"))
-ALL_TEMPLATES = sorted(TEMPLATES_DIR.glob("*.html.j2"))
+NEW_TEMPLATES = ["grid", "top_down", "platformer", "physics"]
 
 
 def run_generator(game_file):
@@ -57,20 +57,19 @@ class TestAllExamplesGenerate:
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()
-        assert "cdn." not in html, "Output should not reference external CDN"
-        assert 'src="http' not in html, "Output should not load external scripts"
-        assert "import " not in html or "import " in html and "from_player" in html
+        assert "cdn." not in html, "Output must not reference external CDN"
+        assert 'src="http' not in html, "Output must not load external scripts"
 
 
 class TestOutputContent:
-    def test_pacman_output_contains_game_name(self):
-        result = run_generator(EXAMPLES_DIR / "pacman.game")
+    def test_snake_output_has_game_name(self):
+        result = run_generator(EXAMPLES_DIR / "snake.game")
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()
-        assert "Pacman" in html or "pacman" in html.lower()
+        assert "Snake" in html or "snake" in html.lower()
 
-    def test_snake_output_has_canvas(self):
+    def test_snake_output_has_canvas_and_raf(self):
         result = run_generator(EXAMPLES_DIR / "snake.game")
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
@@ -78,29 +77,19 @@ class TestOutputContent:
         assert "<canvas" in html
         assert "requestAnimationFrame" in html
 
-    def test_shooter_output_has_player_color(self):
+    def test_space_defender_has_player_color(self):
         result = run_generator(EXAMPLES_DIR / "space_defender.game")
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()
         assert "#60a5fa" in html
 
-    def test_enhanced_shooter_has_sound_functions(self):
-        result = run_generator(EXAMPLES_DIR / "enhanced_shooter.game")
+    def test_pacman_has_player_color(self):
+        result = run_generator(EXAMPLES_DIR / "pacman.game")
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()
-        assert (
-            "AudioContext" in html
-            or "audioContext" in html.lower()
-            or "playSound" in html
-        )
-
-    def test_tetris_output_no_map_error(self):
-        result = run_generator(EXAMPLES_DIR / "tetris.game")
-        assert result.returncode == 0
-        assert "Error" not in result.stderr
-        assert "Traceback" not in result.stderr
+        assert "#ffff00" in html
 
     def test_output_size_reasonable(self):
         for game_file in ALL_EXAMPLES:
@@ -113,39 +102,98 @@ class TestOutputContent:
                     f"{game_file.stem} output suspiciously large ({size} bytes)"
                 )
 
+    def test_output_names_are_unique(self):
+        output_names = set()
+        for game_file in ALL_EXAMPLES:
+            result = run_generator(game_file)
+            if result.returncode == 0:
+                out_name = (
+                    result.stdout.strip().split("Generated:")[-1].strip().split("/")[-1]
+                )
+                output_names.add(out_name)
+        assert len(output_names) == len(ALL_EXAMPLES), (
+            "Some games produced the same output filename"
+        )
+
+
+class TestEntityContextInOutput:
+    def test_entity_colors_appear_in_output(self):
+        result = run_generator(EXAMPLES_DIR / "snake.game")
+        assert result.returncode == 0
+        out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
+        html = pathlib.Path(out_path_str).read_text()
+        assert "ENTITY_DEFS" in html or "entity" in html.lower()
+
+    def test_symbol_map_in_grid_output(self):
+        result = run_generator(EXAMPLES_DIR / "snake.game")
+        assert result.returncode == 0
+        out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
+        html = pathlib.Path(out_path_str).read_text()
+        assert "SYMBOL_MAP" in html
+
+    def test_engine_flags_appear_in_output(self):
+        result = run_generator(EXAMPLES_DIR / "snake.game")
+        assert result.returncode == 0
+        out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
+        html = pathlib.Path(out_path_str).read_text()
+        assert "GROW_ON_EAT" in html or "grow_on_eat" in html.lower()
+
+    def test_behavior_dsl_runtime_included(self):
+        for game_file in ALL_EXAMPLES:
+            result = run_generator(game_file)
+            if result.returncode == 0:
+                out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
+                html = pathlib.Path(out_path_str).read_text()
+                assert "GAME_VARS" in html, f"GAME_VARS missing in {game_file.stem}"
+                assert "COLLISION_RULES" in html, f"COLLISION_RULES missing in {game_file.stem}"
+                assert "drawOverlay" in html, f"drawOverlay missing in {game_file.stem}"
+
 
 class TestTemplateFiles:
-    def test_all_game_types_have_templates(self):
-        game_types = [
-            "pacman",
-            "snake",
-            "shooter",
-            "breakout",
-            "invaders",
-            "bomberman",
-            "frogger",
-            "sokoban",
-            "tetris",
-            "platformer",
-            "towerdefense",
-        ]
-        for gt in game_types:
-            tmpl = TEMPLATES_DIR / f"{gt}.html.j2"
-            assert tmpl.exists(), f"Missing template: {gt}.html.j2"
+    def test_all_engine_types_have_templates(self):
+        for engine_type in NEW_TEMPLATES:
+            tmpl = TEMPLATES_DIR / f"{engine_type}.html.j2"
+            assert tmpl.exists(), f"Missing template: {engine_type}.html.j2"
 
     def test_templates_are_non_empty(self):
-        for tmpl in ALL_TEMPLATES:
-            assert tmpl.stat().st_size > 1000, f"Template too small: {tmpl.name}"
+        for engine_type in NEW_TEMPLATES:
+            tmpl = TEMPLATES_DIR / f"{engine_type}.html.j2"
+            if tmpl.exists():
+                assert tmpl.stat().st_size > 5000, f"Template too small: {engine_type}.html.j2"
 
     def test_templates_have_jinja_vars(self):
-        for tmpl in ALL_TEMPLATES:
-            content = tmpl.read_text()
-            assert "{{" in content and "}}" in content, f"No Jinja vars in {tmpl.name}"
+        for engine_type in NEW_TEMPLATES:
+            tmpl = TEMPLATES_DIR / f"{engine_type}.html.j2"
+            if tmpl.exists():
+                content = tmpl.read_text()
+                assert "{{" in content and "}}" in content, (
+                    f"No Jinja vars in {engine_type}.html.j2"
+                )
 
     def test_templates_have_canvas(self):
-        for tmpl in ALL_TEMPLATES:
-            content = tmpl.read_text()
-            assert "<canvas" in content, f"No canvas in {tmpl.name}"
+        for engine_type in NEW_TEMPLATES:
+            tmpl = TEMPLATES_DIR / f"{engine_type}.html.j2"
+            if tmpl.exists():
+                content = tmpl.read_text()
+                assert "<canvas" in content, f"No <canvas> in {engine_type}.html.j2"
+
+    def test_templates_include_behavior_dsl(self):
+        for engine_type in NEW_TEMPLATES:
+            tmpl = TEMPLATES_DIR / f"{engine_type}.html.j2"
+            if tmpl.exists():
+                content = tmpl.read_text()
+                assert "_behavior_dsl.j2" in content, (
+                    f"Missing _behavior_dsl.j2 include in {engine_type}.html.j2"
+                )
+
+    def test_templates_include_runtime(self):
+        for engine_type in NEW_TEMPLATES:
+            tmpl = TEMPLATES_DIR / f"{engine_type}.html.j2"
+            if tmpl.exists():
+                content = tmpl.read_text()
+                assert "_runtime.j2" in content, (
+                    f"Missing _runtime.j2 include in {engine_type}.html.j2"
+                )
 
 
 class TestGeneratorErrorHandling:
@@ -188,73 +236,20 @@ class TestGeneratorErrorHandling:
             pathlib.Path(tmp_path).unlink(missing_ok=True)
 
 
-class TestPhase1BehaviorDSLGenerator:
-    def test_pacman_behavior_generates(self):
-        result = run_generator(EXAMPLES_DIR / "pacman_behavior.game")
-        assert result.returncode == 0, (
-            f"Generator failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
-        )
+class TestRulesInOutput:
+    def test_pacman_has_conditional_rules(self):
+        result = run_generator(EXAMPLES_DIR / "pacman.game")
+        assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()
-        assert "GAME_VARS" in html
         assert "COLLISION_RULES" in html
-        assert "TIMER_RULES" in html
         assert "evalRuleCond" in html
         assert "fireCollisionRule" in html
 
-    def test_shooter_waves_generates(self):
-        result = run_generator(EXAMPLES_DIR / "shooter_waves.game")
-        assert result.returncode == 0, (
-            f"Generator failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
-        )
-
-
-class TestSpawnResolutionInGenerator:
-    def test_player_spawn_resolved_correctly(self):
-        result = run_generator(EXAMPLES_DIR / "space_defender.game")
+    def test_pacman_has_timer_rules(self):
+        result = run_generator(EXAMPLES_DIR / "pacman.game")
         assert result.returncode == 0
         out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
         html = pathlib.Path(out_path_str).read_text()
-        assert (
-            "playerX" in html
-            or "PLAYER_X" in html
-            or "player_x" in html.lower()
-            or "spawn" in html.lower()
-        )
-
-    def test_all_examples_output_names_are_unique(self):
-        output_names = set()
-        for game_file in ALL_EXAMPLES:
-            result = run_generator(game_file)
-            if result.returncode == 0:
-                out_name = (
-                    result.stdout.strip().split("Generated:")[-1].strip().split("/")[-1]
-                )
-                output_names.add(out_name)
-        assert len(output_names) == len(ALL_EXAMPLES), (
-            "Some games produced the same output filename"
-        )
-
-
-class TestBehaviorReuseGenerator:
-    def test_space_defender_v2_generates(self):
-        result = run_generator(EXAMPLES_DIR / "space_defender_v2.game")
-        assert result.returncode == 0, result.stderr
-
-    def test_space_defender_v2_has_merged_tiles(self):
-        result = run_generator(EXAMPLES_DIR / "space_defender_v2.game")
-        assert result.returncode == 0
-        out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
-        html = pathlib.Path(out_path_str).read_text()
-        assert "#1e293b" in html
-
-    def test_space_defender_v2_has_merged_rules(self):
-        result = run_generator(EXAMPLES_DIR / "space_defender_v2.game")
-        assert result.returncode == 0
-        out_path_str = result.stdout.strip().split("Generated:")[-1].strip()
-        html = pathlib.Path(out_path_str).read_text()
-        assert "lose_life" in html
-
-    def test_pacman_v2_generates(self):
-        result = run_generator(EXAMPLES_DIR / "pacman_v2.game")
-        assert result.returncode == 0, result.stderr
+        assert "TIMER_RULES" in html
+        assert "updateRuleTimers" in html

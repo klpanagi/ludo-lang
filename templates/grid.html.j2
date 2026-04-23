@@ -1,0 +1,1811 @@
+{% set OVERLAY_COLOR = '#00cc00' %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ game.name }}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: {{ game.background or '#111111' }};
+    background-image: radial-gradient(ellipse at 50% 30%, rgba(255,255,255,0.04) 0%, transparent 65%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Courier New', monospace;
+    color: #fff;
+  }
+  .game-title {
+    font-size: 17px;
+    font-weight: bold;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    color: {{ OVERLAY_COLOR }};
+    text-shadow: 0 0 14px {{ OVERLAY_COLOR }}, 0 0 30px {{ OVERLAY_COLOR }}55;
+    margin-bottom: 12px;
+    user-select: none;
+  }
+  .canvas-frame {
+    position: relative;
+    display: inline-block;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.07),
+      0 0 24px {{ OVERLAY_COLOR }}30,
+      0 0 56px {{ OVERLAY_COLOR }}14;
+    border-radius: 2px;
+  }
+  canvas { display: block; }
+  .controls {
+    margin-top: 10px;
+    font-size: 11px;
+    color: #4a5568;
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: {{ game.canvas.width }}px;
+    user-select: none;
+  }
+  kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    border: 1px solid #2d3748;
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    background: #161e2e;
+    color: #64748b;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    line-height: 1.5;
+  }
+  .sep { color: #2d3748; margin: 0 2px; }
+</style>
+</head>
+<body>
+<div class="game-title">{{ game.name }}</div>
+<div class="canvas-frame">
+<canvas id="gameCanvas" width="{{ game.canvas.width }}" height="{{ game.canvas.height }}"></canvas>
+</div>
+<div class="controls">
+{% if engine.movement == 'falling' %}
+  <kbd>← →</kbd> move <span class="sep">|</span> <kbd>↑</kbd> rotate <span class="sep">|</span> <kbd>↓</kbd> soft drop <span class="sep">|</span> <kbd>Space</kbd> hard drop <span class="sep">|</span> <kbd>P</kbd> pause
+{% elif engine.movement == 'formation' %}
+  <kbd>← →</kbd> / <kbd>A</kbd><kbd>D</kbd> move <span class="sep">|</span> <kbd>Space</kbd> shoot <span class="sep">|</span> <kbd>Enter</kbd> restart
+{% elif engine.movement == 'step' %}
+  <kbd>↑↓←→</kbd> / <kbd>WASD</kbd> move <span class="sep">|</span> <kbd>R</kbd> restart <span class="sep">|</span> <kbd>P</kbd> pause
+{% else %}
+  <kbd>↑↓←→</kbd> / <kbd>WASD</kbd> move <span class="sep">|</span> <kbd>P</kbd> pause <span class="sep">|</span> <kbd>Enter</kbd> restart
+{% endif %}
+</div>
+<script>
+(function() {
+  'use strict';
+
+  /* ---- CANVAS & CORE CONSTANTS ---- */
+  var CANVAS_W  = {{ game.canvas.width }};
+  var CANVAS_H  = {{ game.canvas.height }};
+  var BG_COLOR  = "{{ game.background or '#111111' }}";
+
+  /* ---- ENGINE FLAGS (from DSL engine block) ---- */
+  var CELL_SIZE    = {{ cell_size }};
+  var MOVEMENT     = "{{ engine.movement or 'continuous' }}";
+  var WRAP_EDGES   = {{ 'true' if engine.wrap_edges else 'false' }};
+  var GROW_ON_EAT  = {{ 'true' if engine.grow_on_eat else 'false' }};
+  var DOT_COLLECT  = {{ 'true' if engine.dot_collection else 'false' }};
+  var GHOST_AI     = "{{ engine.ghost_ai or 'none' }}";
+  var BOMB_SYSTEM  = {{ 'true' if engine.bomb_system else 'false' }};
+  var BLAST_RADIUS = {{ engine.blast_radius or 2 }};
+  var PUSH_MECH    = {{ 'true' if engine.push_mechanics else 'false' }};
+   var LANE_OBS     = {{ 'true' if engine.lane_obstacles else 'false' }};
+   var WIN_COND     = "{{ game_rules.win if game_rules and game_rules.win else '' }}";
+
+   /* ---- PLAYER CONFIG ---- */
+  var PLAYER_COLOR  = "{{ game.player.color if game.player else '#00aa44' }}";
+  var PLAYER_SPEED  = {{ game.player.speed if game.player else 8 }};
+  var PLAYER_LIVES  = {{ game.player.lives if game.player else 3 }};
+  {% if player_spawn %}
+  var PLAYER_START_COL = {{ player_spawn.col }};
+  var PLAYER_START_ROW = {{ player_spawn.row }};
+  {% else %}
+  var PLAYER_START_COL = 1;
+  var PLAYER_START_ROW = 1;
+  {% endif %}
+  var START_DIR     = "{{ game.player.start_direction if game.player and game.player.start_direction else 'right' }}";
+  var START_LENGTH  = {{ game.player.start_length if game.player and game.player.start_length else 3 }};
+
+  /* ---- LAYOUT ---- */
+  var RAW_LAYOUT = [
+{% for row in layout %}
+    {{ row | tojson }}{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  ];
+  var GRID_ROWS = RAW_LAYOUT.length || Math.floor(CANVAS_H / CELL_SIZE);
+  var GRID_COLS = (RAW_LAYOUT[0] && RAW_LAYOUT[0].length) || Math.floor(CANVAS_W / CELL_SIZE);
+
+  /* ---- ENTITY REGISTRY ---- */
+  var ENTITY_DEFS = {
+{% for e in entities %}
+    {{ e.name | tojson }}: {
+      type: {{ e.entity_type | tojson }},
+      symbol: {{ e.symbol | tojson }},
+      spawnSymbol: {{ e.spawn_symbol | tojson }},
+      color: {{ e.color | tojson }},
+      solid: {{ 'true' if e.solid else 'false' }},
+      speed: {{ e.speed or 0 }},
+      ai: {{ e.ai | tojson }},
+      score: {{ e.score or 0 }},
+      points: {{ e.points or 0 }},
+      respawn: {{ 'true' if e.respawn else 'false' }},
+      count: {{ e.count or 1 }},
+      blastRadius: {{ e.blast_radius or 2 }},
+      fuseTime: {{ e.fuse_time or 3 }},
+      releaseDelay: {{ e.release_delay or 0 }},
+      dropChance: {{ e.drop_chance or 0 }},
+      spawnPositions: [{% for sp in e.spawn_positions %}{ col: {{ sp.col }}, row: {{ sp.row }} }{% if not loop.last %},{% endif %}{% endfor %}]
+    }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  };
+
+  /* ---- SYMBOL MAP ---- */
+  var SYMBOL_MAP = {
+{% for sym, name in symbol_map.items() %}
+    {{ sym | tojson }}: {{ name | tojson }}{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  };
+
+  /* ---- ITEMS ---- */
+  var ITEM_DEFS = [
+{% for it in items %}
+    { name: {{ it.name | tojson }}, symbol: {{ it.symbol | tojson }}, color: {{ it.color | tojson }},
+      score: {{ it.score or 0 }}, effect: {{ (it.effect or '') | tojson }},
+      duration: {{ it.duration or 0 }}, dropChance: {{ it.drop_chance or 0 }} }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  ];
+
+  /* ---- LEVELS ---- */
+  var LEVEL_DEFS = [
+{% for lv in levels %}
+    { number: {{ lv.number }}, speedMult: {{ lv.speed_multiplier or 1.0 }}, enemyCount: {{ lv.enemy_count or 0 }} }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  ];
+
+  /* ---- SOUNDS ---- */
+{% if sounds %}
+{% for snd in sounds %}
+  function playSound_{{ snd.name }}() {
+    try {
+      var ctx_ = new (window.AudioContext || window.webkitAudioContext)();
+{% if snd.sound_type == 'beep' %}
+      var osc = ctx_.createOscillator();
+      var gain = ctx_.createGain();
+      osc.connect(gain); gain.connect(ctx_.destination);
+      osc.type = 'square';
+      osc.frequency.value = {{ snd.frequency or 440 }};
+      gain.gain.setValueAtTime({{ snd.volume or 0.3 }}, ctx_.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx_.currentTime + {{ snd.duration or 0.08 }});
+      osc.start(); osc.stop(ctx_.currentTime + {{ snd.duration or 0.08 }});
+{% elif snd.sound_type == 'sweep_up' %}
+      var osc = ctx_.createOscillator();
+      var gain = ctx_.createGain();
+      osc.connect(gain); gain.connect(ctx_.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime({{ snd.frequency or 200 }}, ctx_.currentTime);
+      osc.frequency.exponentialRampToValueAtTime({{ (snd.frequency * 4) if snd.frequency else 800 }}, ctx_.currentTime + {{ snd.duration or 0.2 }});
+      gain.gain.setValueAtTime({{ snd.volume or 0.3 }}, ctx_.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx_.currentTime + {{ snd.duration or 0.2 }});
+      osc.start(); osc.stop(ctx_.currentTime + {{ snd.duration or 0.2 }});
+{% elif snd.sound_type == 'sweep_down' %}
+      var osc = ctx_.createOscillator();
+      var gain = ctx_.createGain();
+      osc.connect(gain); gain.connect(ctx_.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime({{ (snd.frequency * 4) if snd.frequency else 800 }}, ctx_.currentTime);
+      osc.frequency.exponentialRampToValueAtTime({{ snd.frequency or 200 }}, ctx_.currentTime + {{ snd.duration or 0.2 }});
+      gain.gain.setValueAtTime({{ snd.volume or 0.3 }}, ctx_.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx_.currentTime + {{ snd.duration or 0.2 }});
+      osc.start(); osc.stop(ctx_.currentTime + {{ snd.duration or 0.2 }});
+{% elif snd.sound_type == 'explosion' or snd.sound_type == 'noise' %}
+      var bufSize = Math.floor(ctx_.sampleRate * {{ snd.duration or 0.3 }});
+      var buf = ctx_.createBuffer(1, bufSize, ctx_.sampleRate);
+      var data = buf.getChannelData(0);
+      for (var _i = 0; _i < bufSize; _i++) data[_i] = Math.random() * 2 - 1;
+      var src = ctx_.createBufferSource();
+      src.buffer = buf;
+      var gain = ctx_.createGain();
+      src.connect(gain); gain.connect(ctx_.destination);
+      gain.gain.setValueAtTime({{ snd.volume or 0.4 }}, ctx_.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx_.currentTime + {{ snd.duration or 0.3 }});
+      src.start(); src.stop(ctx_.currentTime + {{ snd.duration or 0.3 }});
+{% endif %}
+    } catch(e) {}
+  }
+{% endfor %}
+{% else %}
+  function playSound_eat() {}
+  function playSound_die() {}
+  function playSound_shoot() {}
+  function playSound_bomb() {}
+  function playSound_level_up() {}
+{% endif %}
+
+  /* ---- BEHAVIOR DSL ---- */
+{% include '_behavior_dsl.j2' %}
+
+  /* ---- RULE HOOKS (implemented per movement mode below) ---- */
+  var _currentEnemy = null;
+  function _ruleHook_loseLife()           { loseLife(); }
+  function _ruleHook_addPoints(pts)       { score += (pts || 0); }
+  function _ruleHook_destroyEnemy()       { if (_currentEnemy) { _currentEnemy._dead = true; } }
+  function _ruleHook_destroyAllEnemies()  { enemies = []; }
+  function _ruleHook_nextLevel()          { advanceLevel(); }
+  function _ruleHook_spawn(entity, loc)   { spawnEntity(entity, loc); }
+
+  /* ---- CANVAS SETUP ---- */
+  var canvas = document.getElementById('gameCanvas');
+  var ctx    = canvas.getContext('2d');
+
+  var _RT_W = CANVAS_W;
+  var _RT_H = CANVAS_H;
+{% include '_runtime.j2' %}
+
+  /* ---- GAME STATE ---- */
+  var STATE_PLAYING  = 'PLAYING';
+  var STATE_PAUSED   = 'PAUSED';
+  var STATE_GAMEOVER = 'GAME_OVER';
+  var STATE_WIN      = 'WIN';
+
+  var gameState  = STATE_PLAYING;
+  var score      = 0;
+  var lives      = PLAYER_LIVES;
+  var level      = 1;
+  var scoreMult  = 1;
+  var scoreMultTimer = 0;
+  var speedBoostTimer = 0;
+  var activeItems = [];
+  var enemies    = [];
+  var particles  = [];
+  var lastTime   = null;
+  var tickAccum  = 0;
+
+  var HIGH_SCORE_KEY = 'grid_hs_{{ game.name | replace(" ", "_") }}';
+  var highScore = parseInt(localStorage.getItem(HIGH_SCORE_KEY) || '0', 10);
+
+  /* ---- WALL GRID ---- */
+  var wallGrid = [];
+  function buildWallGrid() {
+    wallGrid = [];
+    for (var r = 0; r < GRID_ROWS; r++) {
+      wallGrid[r] = [];
+      for (var c = 0; c < GRID_COLS; c++) {
+        var ch = (RAW_LAYOUT[r] && RAW_LAYOUT[r][c]) ? RAW_LAYOUT[r][c] : ' ';
+        wallGrid[r][c] = (ch === '#');
+      }
+    }
+  }
+  function isWall(col, row) {
+    if (row < 0 || row >= GRID_ROWS || col < 0 || col >= GRID_COLS) return true;
+    return !!(wallGrid[row] && wallGrid[row][col]);
+  }
+  function getSymbolAt(col, row) {
+    if (row < 0 || row >= GRID_ROWS || col < 0 || col >= GRID_COLS) return null;
+    return (RAW_LAYOUT[row] && RAW_LAYOUT[row][col]) || null;
+  }
+  function getEntityTypeAt(col, row) {
+    var ch = getSymbolAt(col, row);
+    return ch ? (SYMBOL_MAP[ch] || null) : null;
+  }
+
+  /* ---- SHARED HELPERS ---- */
+  function dirFromStr(s) {
+    if (s === 'up')    return { dx: 0, dy: -1 };
+    if (s === 'down')  return { dx: 0, dy:  1 };
+    if (s === 'left')  return { dx: -1, dy: 0 };
+    if (s === 'right') return { dx:  1, dy: 0 };
+    return { dx: 1, dy: 0 };
+  }
+  function wrapCol(c) {
+    if (c < 0) return GRID_COLS - 1;
+    if (c >= GRID_COLS) return 0;
+    return c;
+  }
+  function wrapRow(r) {
+    if (r < 0) return GRID_ROWS - 1;
+    if (r >= GRID_ROWS) return 0;
+    return r;
+  }
+  function loseLife() {
+    lives--;
+    if (lives <= 0) { gameState = STATE_GAMEOVER; }
+    else { resetPlayerPos(); }
+  }
+  function advanceLevel() {
+    level++;
+    var ldef = null;
+    for (var i = 0; i < LEVEL_DEFS.length; i++) {
+      if (LEVEL_DEFS[i].number === level) { ldef = LEVEL_DEFS[i]; break; }
+    }
+    if (MOVEMENT === 'continuous') {
+      var mult = ldef ? ldef.speedMult : 1.0 + (level - 1) * 0.1;
+      TICK_INTERVAL = 1.0 / (PLAYER_SPEED * mult);
+    }
+  }
+  function spawnEntity(entityName, locType) {
+    var def = ENTITY_DEFS[entityName];
+    if (!def) return;
+    var col = Math.floor(Math.random() * GRID_COLS);
+    var row = Math.floor(Math.random() * GRID_ROWS);
+    if (!isWall(col, row)) {
+      enemies.push({ col: col, row: row, def: def, name: entityName, _dead: false });
+    }
+  }
+  function spawnParticle(px, py, color) {
+    for (var i = 0; i < 6; i++) {
+      particles.push({
+        x: px, y: py,
+        vx: (Math.random() - 0.5) * 80,
+        vy: (Math.random() - 0.5) * 80,
+        life: 0.5 + Math.random() * 0.3,
+        color: color || '#ff6600'
+      });
+    }
+  }
+  function updateParticles(dt) {
+    for (var i = particles.length - 1; i >= 0; i--) {
+      var p = particles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.life -= dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+  }
+  function drawParticles() {
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      ctx.globalAlpha = Math.max(0, p.life / 0.8);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+    }
+    ctx.globalAlpha = 1;
+  }
+  function drawWalls() {
+    for (var r = 0; r < GRID_ROWS; r++) {
+      for (var c = 0; c < GRID_COLS; c++) {
+        if (wallGrid[r][c]) {
+          ctx.fillStyle = '#334455';
+          ctx.fillRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+          ctx.strokeStyle = '#223344';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+        }
+      }
+    }
+  }
+  function uiPos(posStr, textWidth, lineHeight, index) {
+    var margin = 8;
+    var x, y;
+    if (posStr === 'top_left')        { x = margin; y = margin + lineHeight * (index + 1); }
+    else if (posStr === 'top_right')  { x = CANVAS_W - margin - textWidth; y = margin + lineHeight * (index + 1); }
+    else if (posStr === 'top_center') { x = (CANVAS_W - textWidth) / 2; y = margin + lineHeight * (index + 1); }
+    else if (posStr === 'bottom_left'){ x = margin; y = CANVAS_H - margin - lineHeight * index; }
+    else if (posStr === 'bottom_right'){ x = CANVAS_W - margin - textWidth; y = CANVAS_H - margin - lineHeight * index; }
+    else { x = margin; y = margin + lineHeight; }
+    return { x: x, y: y };
+  }
+  function _hudPanel(x, y, w, h) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.roundRect(x, y, w, h, 4);
+    ctx.fill();
+    ctx.restore();
+  }
+  function drawUI() {
+    var margin = 7;
+    var panelH = 34;
+
+    // Score panel
+    ctx.font = 'bold 13px Courier New';
+    var scoreText = 'SCORE  ' + score;
+    var sw = ctx.measureText(scoreText).width;
+    {% if game.ui and game.ui.score_pos == 'top_right' %}
+    var sx = CANVAS_W - margin - sw - 14;
+    {% else %}
+    var sx = margin;
+    {% endif %}
+    var sy = margin;
+    _hudPanel(sx, sy, sw + 14, panelH);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText(scoreText, sx + 7, sy + 14);
+    ctx.font = '10px Courier New';
+    ctx.fillStyle = '#f59e0b';
+    var hiText = 'BEST  ' + highScore;
+    ctx.fillText(hiText, sx + 7, sy + 27);
+
+    // Lives panel — hearts
+    var hearts = '';
+    for (var _h = 0; _h < lives; _h++) hearts += '\u2665 ';
+    for (var _h2 = lives; _h2 < PLAYER_LIVES; _h2++) hearts += '\u2661 ';
+    hearts = hearts.trim() || '\u2661';
+    ctx.font = 'bold 13px Courier New';
+    var lw = ctx.measureText(hearts).width;
+    {% if game.ui and game.ui.lives_pos == 'top_left' %}
+    var lx = margin;
+    {% else %}
+    var lx = CANVAS_W - margin - lw - 14;
+    {% endif %}
+    _hudPanel(lx, sy, lw + 14, panelH - 10);
+    ctx.fillStyle = '#f87171';
+    ctx.fillText(hearts, lx + 7, sy + 14);
+
+    {% if game.ui and game.ui.level_pos %}
+    ctx.font = 'bold 12px Courier New';
+    var levelText = 'LVL  ' + level;
+    var lvw = ctx.measureText(levelText).width;
+    {% if game.ui.level_pos == 'top_center' %}
+    var lvx = (CANVAS_W - lvw - 14) / 2;
+    {% else %}
+    var lvx = margin;
+    {% endif %}
+    _hudPanel(lvx, sy, lvw + 14, panelH - 10);
+    ctx.fillStyle = '#67e8f9';
+    ctx.fillText(levelText, lvx + 7, sy + 14);
+    {% endif %}
+  }
+  function trySpawnItem(col, row) {
+    if (ITEM_DEFS.length === 0) return;
+    for (var d = 0; d < ITEM_DEFS.length; d++) {
+      var def = ITEM_DEFS[d];
+      if (Math.random() < def.dropChance) {
+        activeItems.push({ col: col, row: row, def: def, life: 10 });
+        break;
+      }
+    }
+  }
+  function collectItem(it) {
+    if (it.def.score > 0) score += it.def.score * scoreMult;
+    if (it.def.effect === 'speed_up')       { speedBoostTimer = it.def.duration || 5; }
+    if (it.def.effect === 'score_multiply') { scoreMultTimer = it.def.duration || 5; scoreMult = 2; }
+    if (it.def.effect === 'extra_life')     { lives++; }
+  }
+  function updateItemTimers(dt) {
+    for (var i = activeItems.length - 1; i >= 0; i--) {
+      activeItems[i].life -= dt;
+      if (activeItems[i].life <= 0) activeItems.splice(i, 1);
+    }
+    if (speedBoostTimer > 0) { speedBoostTimer -= dt; if (speedBoostTimer <= 0) { speedBoostTimer = 0; } }
+    if (scoreMultTimer > 0)  { scoreMultTimer -= dt;  if (scoreMultTimer <= 0)  { scoreMultTimer = 0; scoreMult = 1; } }
+  }
+  function drawItems() {
+    for (var i = 0; i < activeItems.length; i++) {
+      var it = activeItems[i];
+      ctx.globalAlpha = Math.min(1, it.life / 3);
+      ctx.fillStyle = it.def.color;
+      ctx.font = 'bold ' + Math.round(CELL_SIZE * 0.75) + 'px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(it.def.symbol, it.col * CELL_SIZE + CELL_SIZE / 2, it.row * CELL_SIZE + CELL_SIZE * 0.8);
+      ctx.textAlign = 'left';
+      ctx.globalAlpha = 1;
+    }
+  }
+  var playerCol = PLAYER_START_COL;
+  var playerRow = PLAYER_START_ROW;
+
+  function resetPlayerPos() {
+{% if engine.movement == 'formation' %}
+    playerX = CANVAS_W / 2;
+    playerY = CANVAS_H - CELL_SIZE * 2;
+{% else %}
+    playerCol = PLAYER_START_COL;
+    playerRow = PLAYER_START_ROW;
+{% endif %}
+  }
+
+  /* ======================================================================
+     MOVEMENT = 'continuous'  →  snake / pacman / frogger / bomberman
+     ====================================================================== */
+{% if engine.movement == 'continuous' or not engine.movement %}
+
+  var TICK_INTERVAL = 1.0 / PLAYER_SPEED;
+  var direction = dirFromStr(START_DIR);
+  var nextDir   = dirFromStr(START_DIR);
+  playerCol = PLAYER_START_COL;
+  playerRow = PLAYER_START_ROW;
+
+  /* ---- SNAKE body ---- */
+{% if engine.grow_on_eat %}
+  var snake = [];
+  function initSnake() {
+    snake = [];
+    var d = dirFromStr(START_DIR);
+    direction = { dx: d.dx, dy: d.dy };
+    nextDir   = { dx: d.dx, dy: d.dy };
+    for (var i = 0; i < START_LENGTH; i++) {
+      snake.push({ col: PLAYER_START_COL - d.dx * i, row: PLAYER_START_ROW - d.dy * i });
+    }
+    playerCol = snake[0].col;
+    playerRow = snake[0].row;
+  }
+  function isOnSnake(c, r) {
+    for (var i = 0; i < snake.length; i++) {
+      if (snake[i].col === c && snake[i].row === r) return true;
+    }
+    return false;
+  }
+{% endif %}
+
+  /* ---- DOT GRID (pacman) ---- */
+{% if engine.dot_collection %}
+  var dotGrid = [];
+  var totalDots = 0;
+  var dotsCollected = 0;
+  function buildDotGrid() {
+    dotGrid = [];
+    totalDots = 0;
+    dotsCollected = 0;
+    for (var r = 0; r < GRID_ROWS; r++) {
+      dotGrid[r] = [];
+      for (var c = 0; c < GRID_COLS; c++) {
+        var ch = getSymbolAt(c, r);
+        var etype = ch ? SYMBOL_MAP[ch] : null;
+        var isDot = (etype === 'dot' || etype === 'food' || ch === '.' || ch === 'o');
+        dotGrid[r][c] = isDot ? 1 : 0;
+        if (isDot) totalDots++;
+      }
+    }
+  }
+{% endif %}
+
+  /* ---- FOOD (snake / frogger) ---- */
+  var foods = [];
+  var foodEaten = 0;
+  function spawnFood() {
+    var foodDef = null;
+    for (var k in ENTITY_DEFS) {
+      if (ENTITY_DEFS[k].type === 'food' || ENTITY_DEFS[k].type === 'collectible') {
+        foodDef = ENTITY_DEFS[k]; break;
+      }
+    }
+    var foodColor = foodDef ? foodDef.color : '#ff4444';
+    var foodScore = foodDef ? (foodDef.score || foodDef.points || 10) : 10;
+    var foodCount = foodDef ? (foodDef.count || 1) : 1;
+    var attempts = 0;
+    while (foods.length < foodCount && attempts < 1000) {
+      attempts++;
+      var fc = Math.floor(Math.random() * GRID_COLS);
+      var fr = Math.floor(Math.random() * GRID_ROWS);
+      if (isWall(fc, fr)) continue;
+{% if engine.grow_on_eat %}
+      if (isOnSnake(fc, fr)) continue;
+{% endif %}
+      var onFood = false;
+      for (var fi = 0; fi < foods.length; fi++) {
+        if (foods[fi].col === fc && foods[fi].row === fr) { onFood = true; break; }
+      }
+      if (!onFood) foods.push({ col: fc, row: fr, color: foodColor, score: foodScore });
+    }
+  }
+
+  /* ---- GHOST / ENEMY AI (pacman) ---- */
+{% if engine.ghost_ai and engine.ghost_ai != 'none' %}
+  function bfsPath(startC, startR, goalC, goalR) {
+    var visited = {};
+    var queue = [{ c: startC, r: startR, path: [] }];
+    visited[startR + ',' + startC] = true;
+    var dirs = [{dc:1,dr:0},{dc:-1,dr:0},{dc:0,dr:1},{dc:0,dr:-1}];
+    while (queue.length > 0) {
+      var cur = queue.shift();
+      if (cur.c === goalC && cur.r === goalR) return cur.path;
+      for (var di = 0; di < dirs.length; di++) {
+        var nc = cur.c + dirs[di].dc;
+        var nr = cur.r + dirs[di].dr;
+        var key = nr + ',' + nc;
+        if (!isWall(nc, nr) && !visited[key]) {
+          visited[key] = true;
+          queue.push({ c: nc, r: nr, path: cur.path.concat([{dc: dirs[di].dc, dr: dirs[di].dr}]) });
+        }
+      }
+    }
+    return [];
+  }
+  function moveGhostAI(ghost) {
+    var path = bfsPath(ghost.col, ghost.row, playerCol, playerRow);
+    if (path.length > 0) {
+      ghost.col += path[0].dc;
+      ghost.row += path[0].dr;
+    } else {
+      var dirs = [{dc:1,dr:0},{dc:-1,dr:0},{dc:0,dr:1},{dc:0,dr:-1}];
+      var valid = [];
+      for (var di = 0; di < dirs.length; di++) {
+        var nc = ghost.col + dirs[di].dc;
+        var nr = ghost.row + dirs[di].dr;
+        if (!isWall(nc, nr)) valid.push(dirs[di]);
+      }
+      if (valid.length > 0) {
+        var pick = valid[Math.floor(Math.random() * valid.length)];
+        ghost.col += pick.dc; ghost.row += pick.dr;
+      }
+    }
+  }
+{% else %}
+  function moveGhostAI(ghost) {
+    var dirs = [{dc:1,dr:0},{dc:-1,dr:0},{dc:0,dr:1},{dc:0,dr:-1}];
+    var valid = [];
+    for (var di = 0; di < dirs.length; di++) {
+      var nc = ghost.col + dirs[di].dc;
+      var nr = ghost.row + dirs[di].dr;
+      if (!isWall(nc, nr)) valid.push(dirs[di]);
+    }
+    if (valid.length > 0) {
+      var pick = valid[Math.floor(Math.random() * valid.length)];
+      ghost.col += pick.dc; ghost.row += pick.dr;
+    }
+  }
+{% endif %}
+
+  /* ---- BOMBS (bomberman) ---- */
+{% if engine.bomb_system %}
+  var bombs = [];
+  var blastCells = [];
+  var blastTimer = 0;
+  function placeBomb() {
+    for (var bi = 0; bi < bombs.length; bi++) {
+      if (bombs[bi].col === playerCol && bombs[bi].row === playerRow) return;
+    }
+    bombs.push({ col: playerCol, row: playerRow, fuse: BLAST_RADIUS > 0 ? 3 : 3 });
+  }
+  function updateBombs(dt) {
+    for (var bi = bombs.length - 1; bi >= 0; bi--) {
+      bombs[bi].fuse -= dt;
+      if (bombs[bi].fuse <= 0) {
+        explodeBomb(bombs[bi]);
+        bombs.splice(bi, 1);
+      }
+    }
+    if (blastTimer > 0) {
+      blastTimer -= dt;
+      if (blastTimer <= 0) blastCells = [];
+    }
+  }
+  function explodeBomb(bomb) {
+    blastCells = [];
+    blastTimer = 0.5;
+    var dirs = [{dc:1,dr:0},{dc:-1,dr:0},{dc:0,dr:1},{dc:0,dr:-1}];
+    blastCells.push({ col: bomb.col, row: bomb.row });
+    for (var di = 0; di < dirs.length; di++) {
+      for (var step = 1; step <= BLAST_RADIUS; step++) {
+        var bc = bomb.col + dirs[di].dc * step;
+        var br = bomb.row + dirs[di].dr * step;
+        if (isWall(bc, br)) break;
+        blastCells.push({ col: bc, row: br });
+      }
+    }
+    // Kill enemies in blast
+    for (var ei = enemies.length - 1; ei >= 0; ei--) {
+      for (var ci = 0; ci < blastCells.length; ci++) {
+        if (enemies[ei].col === blastCells[ci].col && enemies[ei].row === blastCells[ci].row) {
+          score += (enemies[ei].def.points || 100) * scoreMult;
+          spawnParticle(enemies[ei].col * CELL_SIZE + CELL_SIZE/2, enemies[ei].row * CELL_SIZE + CELL_SIZE/2, enemies[ei].def.color);
+          enemies.splice(ei, 1);
+          break;
+        }
+      }
+    }
+    // Kill player in blast
+    for (var ci2 = 0; ci2 < blastCells.length; ci2++) {
+      if (blastCells[ci2].col === playerCol && blastCells[ci2].row === playerRow) {
+        loseLife(); break;
+      }
+    }
+    playSound_bomb && playSound_bomb();
+  }
+{% endif %}
+
+  /* ---- LANE OBSTACLES (frogger) ---- */
+{% if engine.lane_obstacles %}
+  var lanes = [];
+   function buildLanes() {
+     lanes = [];
+     for (var r = 0; r < GRID_ROWS; r++) {
+       // Scan all cells in this row for movable entities (enemies, obstacles, logs, cars)
+       var laneObstacles = [];
+       var laneDef = null;
+       for (var lc = 0; lc < GRID_COLS; lc++) {
+         var ch = getSymbolAt(lc, r);
+         var ename = ch ? SYMBOL_MAP[ch] : null;
+         if (!ename) continue;
+         var def = ENTITY_DEFS[ename];
+         if (!def) continue;
+         var t = def.type;
+         if (t === 'enemy' || t === 'obstacle' || t === 'car' || t === 'log') {
+           laneObstacles.push({ x: lc * CELL_SIZE + CELL_SIZE / 2 });
+           if (!laneDef) laneDef = def;
+         }
+       }
+       if (laneObstacles.length > 0) {
+         lanes.push({
+           row: r,
+           speed: (laneDef ? (laneDef.speed || 2) : 2) * (r % 2 === 0 ? 1 : -1),
+           color: laneDef ? (laneDef.color || '#ff8800') : '#ff8800',
+           obstacles: laneObstacles
+         });
+       }
+     }
+     if (lanes.length === 0) {
+       for (var lr = 1; lr < GRID_ROWS - 1; lr++) {
+         if (!isWall(0, lr)) {
+           lanes.push({
+             row: lr,
+             speed: (1 + Math.random() * 2) * (lr % 2 === 0 ? 1 : -1),
+             color: lr % 3 === 0 ? '#3399ff' : '#ff8800',
+             obstacles: [{ x: Math.random() * GRID_COLS * CELL_SIZE }, { x: Math.random() * GRID_COLS * CELL_SIZE }]
+           });
+         }
+       }
+     }
+   }
+  function updateLanes(dt) {
+    for (var li = 0; li < lanes.length; li++) {
+      var lane = lanes[li];
+      for (var oi = 0; oi < lane.obstacles.length; oi++) {
+        lane.obstacles[oi].x += lane.speed * CELL_SIZE * dt * 3;
+        if (lane.obstacles[oi].x > GRID_COLS * CELL_SIZE) lane.obstacles[oi].x -= GRID_COLS * CELL_SIZE;
+        if (lane.obstacles[oi].x < 0) lane.obstacles[oi].x += GRID_COLS * CELL_SIZE;
+      }
+    }
+  }
+  function checkLaneCollision() {
+    for (var li = 0; li < lanes.length; li++) {
+      var lane = lanes[li];
+      if (lane.row !== playerRow) continue;
+      var px = playerCol * CELL_SIZE + CELL_SIZE / 2;
+      for (var oi = 0; oi < lane.obstacles.length; oi++) {
+        var ox = lane.obstacles[oi].x;
+        if (Math.abs(px - ox) < CELL_SIZE * 0.8) {
+          loseLife();
+          return;
+        }
+      }
+    }
+  }
+  function drawLanes() {
+    for (var li = 0; li < lanes.length; li++) {
+      var lane = lanes[li];
+      ctx.fillStyle = 'rgba(50,50,80,0.4)';
+      ctx.fillRect(0, lane.row * CELL_SIZE, CANVAS_W, CELL_SIZE);
+      for (var oi = 0; oi < lane.obstacles.length; oi++) {
+        ctx.fillStyle = lane.color;
+        ctx.fillRect(lane.obstacles[oi].x - CELL_SIZE * 0.9, lane.row * CELL_SIZE + 2, CELL_SIZE * 1.8, CELL_SIZE - 4);
+      }
+    }
+  }
+{% endif %}
+
+  /* ---- INIT ENEMIES from entity defs ---- */
+  function initEnemies() {
+    enemies = [];
+    for (var k in ENTITY_DEFS) {
+      var def = ENTITY_DEFS[k];
+      if (def.type === 'enemy' || def.type === 'ghost') {
+        if (def.spawnPositions && def.spawnPositions.length > 0) {
+          for (var si = 0; si < def.spawnPositions.length; si++) {
+            enemies.push({ col: def.spawnPositions[si].col, row: def.spawnPositions[si].row,
+              def: def, name: k, _dead: false, moveTimer: 0 });
+          }
+        } else {
+          var count = def.count || 1;
+          for (var ci3 = 0; ci3 < count; ci3++) {
+            var attempts = 0;
+            while (attempts < 500) {
+              attempts++;
+              var ec = Math.floor(Math.random() * GRID_COLS);
+              var er = Math.floor(Math.random() * GRID_ROWS);
+              if (!isWall(ec, er) && !(ec === playerCol && er === playerRow)) {
+                enemies.push({ col: ec, row: er, def: def, name: k, _dead: false, moveTimer: 0 });
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /* ---- CONTINUOUS TICK ---- */
+  function tick() {
+    direction = { dx: nextDir.dx, dy: nextDir.dy };
+    var newCol = playerCol + direction.dx;
+    var newRow = playerRow + direction.dy;
+
+    if (WRAP_EDGES) {
+      newCol = wrapCol(newCol);
+      newRow = wrapRow(newRow);
+    }
+    if (isWall(newCol, newRow)) {
+      if (!WRAP_EDGES) { loseLife(); return; }
+      return;
+    }
+
+{% if engine.grow_on_eat %}
+    // Snake self-collision
+    for (var si2 = 0; si2 < snake.length - 1; si2++) {
+      if (snake[si2].col === newCol && snake[si2].row === newRow) {
+        loseLife(); return;
+      }
+    }
+{% endif %}
+
+    playerCol = newCol;
+    playerRow = newRow;
+
+{% if engine.grow_on_eat %}
+    snake.unshift({ col: playerCol, row: playerRow });
+{% endif %}
+
+    // Food collection
+    var ateFood = false;
+    for (var fi2 = foods.length - 1; fi2 >= 0; fi2--) {
+      if (foods[fi2].col === playerCol && foods[fi2].row === playerRow) {
+        score += foods[fi2].score * scoreMult;
+        foods.splice(fi2, 1);
+        ateFood = true;
+        foodEaten++;
+        playSound_eat && playSound_eat();
+        if (foodEaten % 5 === 0) { advanceLevel(); }
+        spawnFood();
+        trySpawnItem(playerCol, playerRow);
+        break;
+      }
+    }
+
+{% if engine.dot_collection %}
+    // Dot collection (pacman)
+    if (dotGrid[playerRow] && dotGrid[playerRow][playerCol]) {
+      dotGrid[playerRow][playerCol] = 0;
+      dotsCollected++;
+      score += 10 * scoreMult;
+      playSound_eat && playSound_eat();
+      if (dotsCollected >= totalDots) { gameState = STATE_WIN; }
+    }
+{% endif %}
+
+    // Item collection
+    for (var ii2 = activeItems.length - 1; ii2 >= 0; ii2--) {
+      var it = activeItems[ii2];
+      if (it.col === playerCol && it.row === playerRow) {
+        collectItem(it);
+        activeItems.splice(ii2, 1);
+      }
+    }
+
+{% if engine.grow_on_eat %}
+    if (!ateFood) snake.pop();
+{% endif %}
+
+    // Enemy collision
+    for (var ei2 = enemies.length - 1; ei2 >= 0; ei2--) {
+      if (enemies[ei2].col === playerCol && enemies[ei2].row === playerRow) {
+        _currentEnemy = enemies[ei2];
+        fireCollisionRule('player', 'enemy');
+        _currentEnemy = null;
+        if (enemies[ei2] && enemies[ei2]._dead) {
+          spawnParticle(enemies[ei2].col * CELL_SIZE + CELL_SIZE/2, enemies[ei2].row * CELL_SIZE + CELL_SIZE/2, enemies[ei2].def.color);
+          enemies.splice(ei2, 1);
+        }
+      }
+    }
+
+{% if engine.lane_obstacles %}
+    checkLaneCollision();
+    if (gameState !== STATE_PLAYING) return;
+    // Tile-based entity collisions (e.g. water kills frog)
+    var _cellEntity = getEntityTypeAt(playerCol, playerRow);
+    if (_cellEntity) {
+      fireCollisionRule('player', _cellEntity);
+      if (gameState !== STATE_PLAYING) return;
+    }
+    // reached_exit win: player reaches top row (lily row in frogger) or a 'target'-type cell
+    if (WIN_COND === 'reached_exit') {
+      var _exitDef = _cellEntity ? ENTITY_DEFS[_cellEntity] : null;
+      var _onExit = (_exitDef && _exitDef.type === 'target') ||
+                   (playerRow === 0 && !isWall(playerCol, playerRow));
+      if (_onExit) { gameState = STATE_WIN; score += 500; return; }
+    }
+{% endif %}
+
+    // Move enemies
+    for (var ei3 = 0; ei3 < enemies.length; ei3++) {
+      enemies[ei3].moveTimer = (enemies[ei3].moveTimer || 0) + 1;
+      var moveEvery = Math.max(1, Math.round(PLAYER_SPEED / (enemies[ei3].def.speed || 1)));
+      if (enemies[ei3].moveTimer >= moveEvery) {
+        enemies[ei3].moveTimer = 0;
+        moveGhostAI(enemies[ei3]);
+        // Re-check collision after enemy moves
+        if (enemies[ei3].col === playerCol && enemies[ei3].row === playerRow) {
+          _currentEnemy = enemies[ei3];
+          fireCollisionRule('player', 'enemy');
+          _currentEnemy = null;
+        }
+      }
+    }
+    enemies = enemies.filter(function(e) { return !e._dead; });
+
+{% if game_rules and game_rules.win == 'reached_exit' %}
+    // General reached_exit win: player stands on a target-type entity (non-lane games)
+    if (gameState === STATE_PLAYING) {
+      var _gre_entity = getEntityTypeAt(playerCol, playerRow);
+      var _gre_def = _gre_entity ? ENTITY_DEFS[_gre_entity] : null;
+      if (_gre_def && _gre_def.type === 'target') {
+        gameState = STATE_WIN; score += 500; return;
+      }
+    }
+{% endif %}
+  }
+
+  /* ---- DRAW CONTINUOUS ---- */
+  function drawContinuous() {
+    ctx.fillStyle = BG_COLOR;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+{% if engine.lane_obstacles %}
+    drawLanes();
+{% endif %}
+    drawWalls();
+
+{% if engine.dot_collection %}
+    // Draw dots
+    for (var dr = 0; dr < GRID_ROWS; dr++) {
+      for (var dc = 0; dc < GRID_COLS; dc++) {
+        if (dotGrid[dr] && dotGrid[dr][dc]) {
+          ctx.fillStyle = '#ffb8ae';
+          ctx.beginPath();
+          ctx.arc(dc * CELL_SIZE + CELL_SIZE/2, dr * CELL_SIZE + CELL_SIZE/2, CELL_SIZE * 0.15, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+{% else %}
+    // Draw food
+    for (var fi3 = 0; fi3 < foods.length; fi3++) {
+      var food = foods[fi3];
+      ctx.fillStyle = food.color;
+      ctx.beginPath();
+      ctx.arc(food.col * CELL_SIZE + CELL_SIZE/2, food.row * CELL_SIZE + CELL_SIZE/2, CELL_SIZE * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.beginPath();
+      ctx.arc(food.col * CELL_SIZE + CELL_SIZE/2 - CELL_SIZE*0.1, food.row * CELL_SIZE + CELL_SIZE/2 - CELL_SIZE*0.1, CELL_SIZE * 0.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+{% endif %}
+
+    drawItems();
+
+{% if engine.bomb_system %}
+    // Draw blast cells
+    for (var bci = 0; bci < blastCells.length; bci++) {
+      ctx.fillStyle = 'rgba(255,150,0,0.7)';
+      ctx.fillRect(blastCells[bci].col * CELL_SIZE, blastCells[bci].row * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+    }
+    // Draw bombs
+    for (var bi2 = 0; bi2 < bombs.length; bi2++) {
+      var bomb = bombs[bi2];
+      ctx.fillStyle = '#222';
+      ctx.beginPath();
+      ctx.arc(bomb.col * CELL_SIZE + CELL_SIZE/2, bomb.row * CELL_SIZE + CELL_SIZE/2, CELL_SIZE * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ff4400';
+      ctx.beginPath();
+      ctx.arc(bomb.col * CELL_SIZE + CELL_SIZE/2, bomb.row * CELL_SIZE + CELL_SIZE/2 - CELL_SIZE*0.3, CELL_SIZE * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+    }
+{% endif %}
+
+    // Draw enemies
+    for (var ei4 = 0; ei4 < enemies.length; ei4++) {
+      var en = enemies[ei4];
+      ctx.fillStyle = en.def.color;
+      ctx.beginPath();
+      ctx.arc(en.col * CELL_SIZE + CELL_SIZE/2, en.row * CELL_SIZE + CELL_SIZE/2, CELL_SIZE * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+{% if engine.grow_on_eat %}
+    // Draw snake body
+    for (var si3 = snake.length - 1; si3 >= 0; si3--) {
+      var seg = snake[si3];
+      ctx.fillStyle = (si3 === 0) ? '#00ff66' : PLAYER_COLOR;
+      ctx.beginPath();
+      ctx.roundRect(seg.col * CELL_SIZE + 1, seg.row * CELL_SIZE + 1, CELL_SIZE - 2, CELL_SIZE - 2, 3);
+      ctx.fill();
+    }
+{% else %}
+    // Draw player
+    ctx.fillStyle = PLAYER_COLOR;
+    ctx.beginPath();
+    ctx.roundRect(playerCol * CELL_SIZE + 1, playerRow * CELL_SIZE + 1, CELL_SIZE - 2, CELL_SIZE - 2, 3);
+    ctx.fill();
+{% endif %}
+
+    drawParticles();
+    drawUI();
+  }
+
+  /* ---- INIT CONTINUOUS ---- */
+  function initContinuous() {
+    playerCol = PLAYER_START_COL;
+    playerRow = PLAYER_START_ROW;
+    direction = dirFromStr(START_DIR);
+    nextDir   = dirFromStr(START_DIR);
+    foods = [];
+    activeItems = [];
+    enemies = [];
+    particles = [];
+    score = 0;
+    lives = PLAYER_LIVES;
+    level = 1;
+    scoreMult = 1;
+    foodEaten = 0;
+    tickAccum = 0;
+    gameState = STATE_PLAYING;
+{% if engine.grow_on_eat %}
+    initSnake();
+{% endif %}
+{% if engine.dot_collection %}
+    buildDotGrid();
+{% else %}
+    spawnFood();
+{% endif %}
+{% if engine.lane_obstacles %}
+    buildLanes();
+{% endif %}
+    initEnemies();
+  }
+
+  /* ---- KEY HANDLER CONTINUOUS ---- */
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
+      if (gameState === STATE_PLAYING) { gameState = STATE_PAUSED; e.preventDefault(); return; }
+      if (gameState === STATE_PAUSED)  { gameState = STATE_PLAYING; e.preventDefault(); return; }
+    }
+    var dirMap = {
+      'ArrowLeft':  { dx: -1, dy:  0 }, 'ArrowRight': { dx:  1, dy:  0 },
+      'ArrowUp':    { dx:  0, dy: -1 }, 'ArrowDown':  { dx:  0, dy:  1 },
+      'a': { dx: -1, dy: 0 }, 'd': { dx: 1, dy: 0 },
+      'w': { dx: 0, dy: -1 }, 's': { dx: 0, dy: 1 }
+    };
+    if (dirMap[e.key]) {
+      var nd = dirMap[e.key];
+      if (nd.dx !== -direction.dx || nd.dy !== -direction.dy) nextDir = nd;
+      e.preventDefault();
+    }
+{% if engine.bomb_system %}
+    if (e.key === ' ' && gameState === STATE_PLAYING) { placeBomb(); e.preventDefault(); }
+{% endif %}
+    if ((e.key === 'Enter' || e.key === ' ') && (gameState === STATE_GAMEOVER || gameState === STATE_WIN)) {
+      initContinuous();
+    }
+  });
+
+  /* ---- UPDATE CONTINUOUS ---- */
+  function updateContinuous(dt) {
+    updateItemTimers(dt);
+    updateRuleTimers(dt);
+{% if engine.bomb_system %}
+    updateBombs(dt);
+{% endif %}
+{% if engine.lane_obstacles %}
+    updateLanes(dt);
+{% endif %}
+    tickAccum += dt;
+    var interval = TICK_INTERVAL;
+    if (speedBoostTimer > 0) interval = TICK_INTERVAL * 0.6;
+    while (tickAccum >= interval) {
+      tickAccum -= interval;
+      tick();
+      if (gameState !== STATE_PLAYING) break;
+    }
+    if (score > highScore) { highScore = score; localStorage.setItem(HIGH_SCORE_KEY, highScore); }
+  }
+
+  /* ---- GAME LOOP CONTINUOUS ---- */
+  function gameLoop(timestamp) {
+    if (lastTime === null) lastTime = timestamp;
+    var dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+    lastTime = timestamp;
+    if (gameState === STATE_PLAYING) updateContinuous(dt);
+    drawContinuous();
+    if (gameState === STATE_PAUSED)   drawOverlay('PAUSED', 'Press P to resume');
+    if (gameState === STATE_GAMEOVER) drawOverlay('GAME OVER', 'Score: ' + score + '  |  Enter to restart');
+    if (gameState === STATE_WIN)      drawOverlay('YOU WIN!', 'Score: ' + score + '  |  Enter to restart', '#ffcc00');
+    requestAnimationFrame(gameLoop);
+  }
+
+  buildWallGrid();
+  initContinuous();
+  requestAnimationFrame(gameLoop);
+
+{% endif %}{# end movement=continuous #}
+
+  /* ======================================================================
+     MOVEMENT = 'step'  →  sokoban
+     ====================================================================== */
+{% if engine.movement == 'step' %}
+
+  playerCol = PLAYER_START_COL;
+  playerRow = PLAYER_START_ROW;
+  var boxes = [];
+  var targets = [];
+  var stepPending = false;
+
+  function initSokoban() {
+    playerCol = PLAYER_START_COL;
+    playerRow = PLAYER_START_ROW;
+    boxes = [];
+    targets = [];
+    score = 0;
+    lives = PLAYER_LIVES;
+    gameState = STATE_PLAYING;
+    particles = [];
+    // Scan layout for boxes and targets
+    for (var r = 0; r < GRID_ROWS; r++) {
+      for (var c = 0; c < GRID_COLS; c++) {
+        var ch = getSymbolAt(c, r);
+        var etype = ch ? SYMBOL_MAP[ch] : null;
+        if (etype === 'box' || ch === 'B') boxes.push({ col: c, row: r });
+        if (etype === 'target' || ch === 'T' || ch === 'X') targets.push({ col: c, row: r });
+      }
+    }
+    // Also check entity defs for box/target spawn positions
+    for (var k in ENTITY_DEFS) {
+      var def = ENTITY_DEFS[k];
+      if (def.type === 'box' && def.spawnPositions) {
+        for (var si4 = 0; si4 < def.spawnPositions.length; si4++) {
+          var sp = def.spawnPositions[si4];
+          var already = false;
+          for (var bi3 = 0; bi3 < boxes.length; bi3++) {
+            if (boxes[bi3].col === sp.col && boxes[bi3].row === sp.row) { already = true; break; }
+          }
+          if (!already) boxes.push({ col: sp.col, row: sp.row });
+        }
+      }
+      if (def.type === 'target' && def.spawnPositions) {
+        for (var si5 = 0; si5 < def.spawnPositions.length; si5++) {
+          var sp2 = def.spawnPositions[si5];
+          var already2 = false;
+          for (var ti = 0; ti < targets.length; ti++) {
+            if (targets[ti].col === sp2.col && targets[ti].row === sp2.row) { already2 = true; break; }
+          }
+          if (!already2) targets.push({ col: sp2.col, row: sp2.row });
+        }
+      }
+    }
+  }
+
+  function boxAt(c, r) {
+    for (var bi4 = 0; bi4 < boxes.length; bi4++) {
+      if (boxes[bi4].col === c && boxes[bi4].row === r) return bi4;
+    }
+    return -1;
+  }
+  function isTarget(c, r) {
+    for (var ti2 = 0; ti2 < targets.length; ti2++) {
+      if (targets[ti2].col === c && targets[ti2].row === r) return true;
+    }
+    return false;
+  }
+  function checkWin() {
+    if (targets.length === 0) return false;
+    for (var ti3 = 0; ti3 < targets.length; ti3++) {
+      if (boxAt(targets[ti3].col, targets[ti3].row) < 0) return false;
+    }
+    return true;
+  }
+
+  function stepPlayer(dc, dr) {
+    if (gameState !== STATE_PLAYING) return;
+    var nc = playerCol + dc;
+    var nr = playerRow + dr;
+    if (isWall(nc, nr)) return;
+    var bi5 = boxAt(nc, nr);
+    if (bi5 >= 0) {
+      if (PUSH_MECH) {
+        var bc2 = nc + dc;
+        var br2 = nr + dr;
+        if (isWall(bc2, br2) || boxAt(bc2, br2) >= 0) return;
+        boxes[bi5].col = bc2;
+        boxes[bi5].row = br2;
+        score += 5;
+        if (isTarget(bc2, br2)) score += 50;
+        if (checkWin()) { gameState = STATE_WIN; }
+      } else {
+        return;
+      }
+    }
+    playerCol = nc;
+    playerRow = nr;
+  }
+
+  function drawSokoban() {
+    ctx.fillStyle = BG_COLOR;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    drawWalls();
+    // Draw targets
+    for (var ti4 = 0; ti4 < targets.length; ti4++) {
+      ctx.fillStyle = '#334422';
+      ctx.fillRect(targets[ti4].col * CELL_SIZE, targets[ti4].row * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+      ctx.strokeStyle = '#88cc44';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(targets[ti4].col * CELL_SIZE + 3, targets[ti4].row * CELL_SIZE + 3, CELL_SIZE - 6, CELL_SIZE - 6);
+    }
+    // Draw boxes
+    for (var bi6 = 0; bi6 < boxes.length; bi6++) {
+      var bx = boxes[bi6];
+      var onTarget = isTarget(bx.col, bx.row);
+      ctx.fillStyle = onTarget ? '#88cc44' : '#cc8844';
+      ctx.fillRect(bx.col * CELL_SIZE + 2, bx.row * CELL_SIZE + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+      ctx.strokeStyle = onTarget ? '#aaffaa' : '#ffcc88';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx.col * CELL_SIZE + 2, bx.row * CELL_SIZE + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+    }
+    // Draw player
+    ctx.fillStyle = PLAYER_COLOR;
+    ctx.beginPath();
+    ctx.roundRect(playerCol * CELL_SIZE + 2, playerRow * CELL_SIZE + 2, CELL_SIZE - 4, CELL_SIZE - 4, 4);
+    ctx.fill();
+    drawParticles();
+    drawUI();
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
+      if (gameState === STATE_PLAYING) { gameState = STATE_PAUSED; e.preventDefault(); return; }
+      if (gameState === STATE_PAUSED)  { gameState = STATE_PLAYING; e.preventDefault(); return; }
+    }
+    var stepMap = {
+      'ArrowLeft': [-1, 0], 'ArrowRight': [1, 0], 'ArrowUp': [0, -1], 'ArrowDown': [0, 1],
+      'a': [-1, 0], 'd': [1, 0], 'w': [0, -1], 's': [0, 1]
+    };
+    if (stepMap[e.key]) {
+      stepPlayer(stepMap[e.key][0], stepMap[e.key][1]);
+      e.preventDefault();
+    }
+    if (e.key === 'r' || e.key === 'R') { initSokoban(); }
+    if ((e.key === 'Enter') && (gameState === STATE_GAMEOVER || gameState === STATE_WIN)) { initSokoban(); }
+  });
+
+  function gameLoop(timestamp) {
+    if (lastTime === null) lastTime = timestamp;
+    var dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+    lastTime = timestamp;
+    updateParticles(dt);
+    updateRuleTimers(dt);
+    drawSokoban();
+    if (gameState === STATE_PAUSED)   drawOverlay('PAUSED', 'Press P to resume');
+    if (gameState === STATE_GAMEOVER) drawOverlay('GAME OVER', 'Press Enter to restart');
+    if (gameState === STATE_WIN)      drawOverlay('PUZZLE SOLVED!', 'Score: ' + score + '  |  Press Enter to restart', '#ffcc00');
+    requestAnimationFrame(gameLoop);
+  }
+
+  buildWallGrid();
+  initSokoban();
+  requestAnimationFrame(gameLoop);
+
+{% endif %}{# end movement=step #}
+
+  /* ======================================================================
+     MOVEMENT = 'formation'  →  space invaders
+     ====================================================================== */
+{% if engine.movement == 'formation' %}
+
+  var playerX = CANVAS_W / 2;
+  var playerY = CANVAS_H - CELL_SIZE * 2;
+  var playerVX = 0;
+  var PLAYER_MOVE_SPEED = PLAYER_SPEED * CELL_SIZE;
+  var SHOOT_COOLDOWN = 0.4;
+  var shootTimer = 0;
+  var bullets = [];
+  var enemyBullets = [];
+  var aliens = [];
+  var formDir = 1;
+  var formDropPending = false;
+  var formMoveTimer = 0;
+  var FORM_MOVE_INTERVAL = 0.6;
+  var wave = 1;
+  var alienEnemyBulletTimer = 0;
+  var ALIEN_SHOOT_INTERVAL = 2.0;
+
+  function initInvaders() {
+    aliens = [];
+    bullets = [];
+    enemyBullets = [];
+    formDir = 1;
+    formDropPending = false;
+    formMoveTimer = 0;
+    var rows = 4;
+    var cols = 10;
+    var startX = CELL_SIZE * 2;
+    var startY = CELL_SIZE * 2;
+    var alienColors = ['#ff4444', '#ff8800', '#ffcc00', '#00ff88'];
+    var alienPoints = [40, 30, 20, 10];
+    for (var ar = 0; ar < rows; ar++) {
+      for (var ac = 0; ac < cols; ac++) {
+        aliens.push({
+          x: startX + ac * CELL_SIZE * 2.5,
+          y: startY + ar * CELL_SIZE * 2,
+          color: alienColors[ar] || '#00ff88',
+          points: alienPoints[ar] || 10,
+          alive: true,
+          animFrame: 0
+        });
+      }
+    }
+    // Override with entity defs if available
+    var alienDefs = [];
+    for (var k in ENTITY_DEFS) {
+      if (ENTITY_DEFS[k].type === 'enemy') alienDefs.push(ENTITY_DEFS[k]);
+    }
+    if (alienDefs.length > 0) {
+      for (var ai5 = 0; ai5 < aliens.length; ai5++) {
+        var def = alienDefs[ai5 % alienDefs.length];
+        aliens[ai5].color = def.color;
+        aliens[ai5].points = def.points || 10;
+      }
+    }
+    FORM_MOVE_INTERVAL = Math.max(0.1, 0.6 - (wave - 1) * 0.05);
+  }
+
+  function shootBullet() {
+    if (shootTimer > 0) return;
+    bullets.push({ x: playerX, y: playerY - CELL_SIZE, vy: -CELL_SIZE * 18, alive: true });
+    shootTimer = SHOOT_COOLDOWN;
+    playSound_shoot && playSound_shoot();
+  }
+
+  function updateInvaders(dt) {
+    shootTimer = Math.max(0, shootTimer - dt);
+    // Player movement
+    playerVX = 0;
+    if (keys['ArrowLeft'] || keys['a'])  playerVX = -PLAYER_MOVE_SPEED;
+    if (keys['ArrowRight'] || keys['d']) playerVX =  PLAYER_MOVE_SPEED;
+    playerX += playerVX * dt;
+    playerX = Math.max(CELL_SIZE, Math.min(CANVAS_W - CELL_SIZE, playerX));
+    if (keys[' '] || keys['Space']) shootBullet();
+
+    // Formation movement
+    formMoveTimer += dt;
+    if (formMoveTimer >= FORM_MOVE_INTERVAL) {
+      formMoveTimer = 0;
+      var hitEdge = false;
+      for (var ai6 = 0; ai6 < aliens.length; ai6++) {
+        if (!aliens[ai6].alive) continue;
+        aliens[ai6].x += formDir * CELL_SIZE * 1.2;
+        if (aliens[ai6].x < CELL_SIZE || aliens[ai6].x > CANVAS_W - CELL_SIZE) hitEdge = true;
+        aliens[ai6].animFrame = 1 - aliens[ai6].animFrame;
+      }
+      if (hitEdge) {
+        formDir = -formDir;
+        for (var ai7 = 0; ai7 < aliens.length; ai7++) {
+          if (aliens[ai7].alive) aliens[ai7].y += CELL_SIZE;
+        }
+      }
+    }
+
+    // Player bullets
+    for (var bi7 = bullets.length - 1; bi7 >= 0; bi7--) {
+      bullets[bi7].y += bullets[bi7].vy * dt;
+      if (bullets[bi7].y < 0) { bullets.splice(bi7, 1); continue; }
+      var hit = false;
+      for (var ai8 = 0; ai8 < aliens.length; ai8++) {
+        if (!aliens[ai8].alive) continue;
+        if (Math.abs(bullets[bi7].x - aliens[ai8].x) < CELL_SIZE && Math.abs(bullets[bi7].y - aliens[ai8].y) < CELL_SIZE) {
+          aliens[ai8].alive = false;
+          score += aliens[ai8].points * scoreMult;
+          spawnParticle(aliens[ai8].x, aliens[ai8].y, aliens[ai8].color);
+          hit = true;
+          break;
+        }
+      }
+      if (hit) { bullets.splice(bi7, 1); }
+    }
+
+    // Enemy shooting
+    alienEnemyBulletTimer += dt;
+    if (alienEnemyBulletTimer >= ALIEN_SHOOT_INTERVAL) {
+      alienEnemyBulletTimer = 0;
+      var alive = [];
+      for (var ai9 = 0; ai9 < aliens.length; ai9++) { if (aliens[ai9].alive) alive.push(aliens[ai9]); }
+      if (alive.length > 0) {
+        var shooter = alive[Math.floor(Math.random() * alive.length)];
+        enemyBullets.push({ x: shooter.x, y: shooter.y + CELL_SIZE, vy: CELL_SIZE * 8, alive: true });
+      }
+    }
+
+    // Enemy bullets
+    for (var ebi = enemyBullets.length - 1; ebi >= 0; ebi--) {
+      enemyBullets[ebi].y += enemyBullets[ebi].vy * dt;
+      if (enemyBullets[ebi].y > CANVAS_H) { enemyBullets.splice(ebi, 1); continue; }
+      if (Math.abs(enemyBullets[ebi].x - playerX) < CELL_SIZE * 0.8 && Math.abs(enemyBullets[ebi].y - playerY) < CELL_SIZE * 0.8) {
+        enemyBullets.splice(ebi, 1);
+        loseLife();
+      }
+    }
+
+    // Check aliens reached bottom
+    for (var ai10 = 0; ai10 < aliens.length; ai10++) {
+      if (aliens[ai10].alive && aliens[ai10].y > playerY - CELL_SIZE) {
+        gameState = STATE_GAMEOVER; return;
+      }
+    }
+
+    // Check win
+    var anyAlive = false;
+    for (var ai11 = 0; ai11 < aliens.length; ai11++) { if (aliens[ai11].alive) { anyAlive = true; break; } }
+    if (!anyAlive) { wave++; score += 500 * wave; initInvaders(); }
+
+    updateParticles(dt);
+    updateRuleTimers(dt);
+    if (score > highScore) { highScore = score; localStorage.setItem(HIGH_SCORE_KEY, highScore); }
+  }
+
+  function drawInvaders() {
+    ctx.fillStyle = BG_COLOR;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    // Draw aliens
+    for (var ai12 = 0; ai12 < aliens.length; ai12++) {
+      if (!aliens[ai12].alive) continue;
+      var al = aliens[ai12];
+      ctx.fillStyle = al.color;
+      var aw = CELL_SIZE * 1.4;
+      var ah = CELL_SIZE * 0.9;
+      ctx.fillRect(al.x - aw/2, al.y - ah/2, aw, ah);
+      // Legs
+      ctx.fillRect(al.x - aw/2 - 3, al.y + ah/2 - 4, 4, 6);
+      ctx.fillRect(al.x + aw/2 - 1, al.y + ah/2 - 4, 4, 6);
+      if (al.animFrame === 0) {
+        ctx.fillRect(al.x - aw/2, al.y - ah/2 - 4, 5, 4);
+        ctx.fillRect(al.x + aw/2 - 5, al.y - ah/2 - 4, 5, 4);
+      }
+    }
+
+    // Draw player bullets
+    for (var bi8 = 0; bi8 < bullets.length; bi8++) {
+      ctx.fillStyle = '#00ff88';
+      ctx.fillRect(bullets[bi8].x - 2, bullets[bi8].y - 6, 4, 12);
+    }
+
+    // Draw enemy bullets
+    for (var ebi2 = 0; ebi2 < enemyBullets.length; ebi2++) {
+      ctx.fillStyle = '#ff4444';
+      ctx.fillRect(enemyBullets[ebi2].x - 2, enemyBullets[ebi2].y - 6, 4, 12);
+    }
+
+    // Draw player ship
+    ctx.fillStyle = PLAYER_COLOR;
+    ctx.beginPath();
+    ctx.moveTo(playerX, playerY - CELL_SIZE);
+    ctx.lineTo(playerX - CELL_SIZE, playerY + CELL_SIZE * 0.5);
+    ctx.lineTo(playerX + CELL_SIZE, playerY + CELL_SIZE * 0.5);
+    ctx.closePath();
+    ctx.fill();
+
+    drawParticles();
+
+    // HUD
+    ctx.font = 'bold 14px Courier New';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('SCORE: ' + score, 10, 20);
+    ctx.fillText('BEST: ' + highScore, 10, 36);
+    ctx.fillText('LIVES: ' + lives, CANVAS_W - 90, 20);
+    ctx.fillText('WAVE: ' + wave, CANVAS_W / 2 - 30, 20);
+  }
+
+  document.addEventListener('keydown', function(e) {
+    keys[e.key] = true;
+    if (e.key === ' ' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') e.preventDefault();
+    if ((e.key === 'Enter') && (gameState === STATE_GAMEOVER || gameState === STATE_WIN)) {
+      score = 0; lives = PLAYER_LIVES; wave = 1;
+      playerX = CANVAS_W / 2; playerY = CANVAS_H - CELL_SIZE * 2;
+      gameState = STATE_PLAYING;
+      initInvaders();
+    }
+  });
+
+  function gameLoop(timestamp) {
+    if (lastTime === null) lastTime = timestamp;
+    var dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+    lastTime = timestamp;
+    if (gameState === STATE_PLAYING) updateInvaders(dt);
+    drawInvaders();
+    if (gameState === STATE_GAMEOVER) drawOverlay('GAME OVER', 'Score: ' + score + '  |  Enter to restart');
+    if (gameState === STATE_WIN)      drawOverlay('YOU WIN!', 'Score: ' + score + '  |  Enter to restart', '#ffcc00');
+    requestAnimationFrame(gameLoop);
+  }
+
+  lives = PLAYER_LIVES;
+  initInvaders();
+  requestAnimationFrame(gameLoop);
+
+{% endif %}{# end movement=formation #}
+
+  /* ======================================================================
+     MOVEMENT = 'falling'  →  tetris
+     ====================================================================== */
+{% if engine.movement == 'falling' %}
+
+  var TCOLS = Math.floor(CANVAS_W / CELL_SIZE);
+  var TROWS = Math.floor(CANVAS_H / CELL_SIZE);
+  var board = [];
+  var currentPiece = null;
+  var nextPiece = null;
+  var gravityTimer = 0;
+  var GRAVITY_INTERVAL = 1.0;
+  var linesCleared = 0;
+  var LINES_PER_LEVEL = 10;
+  var moveRepeatTimer = 0;
+  var moveRepeatKey = null;
+  var MOVE_REPEAT_DELAY = 0.15;
+
+  var TETROMINOES = {
+    'I': { cells: [[0,0],[0,1],[0,2],[0,3]], color: '#00f5ff' },
+    'O': { cells: [[0,0],[0,1],[1,0],[1,1]], color: '#ffd700' },
+    'T': { cells: [[0,1],[1,0],[1,1],[1,2]], color: '#bf00ff' },
+    'S': { cells: [[0,1],[0,2],[1,0],[1,1]], color: '#00ff88' },
+    'Z': { cells: [[0,0],[0,1],[1,1],[1,2]], color: '#ff3355' },
+    'J': { cells: [[0,0],[1,0],[1,1],[1,2]], color: '#0055ff' },
+    'L': { cells: [[0,2],[1,0],[1,1],[1,2]], color: '#ff8800' }
+  };
+  var PIECE_NAMES = ['I','O','T','S','Z','J','L'];
+
+  function newBoard() {
+    board = [];
+    for (var r = 0; r < TROWS; r++) {
+      board[r] = [];
+      for (var c = 0; c < TCOLS; c++) board[r][c] = null;
+    }
+  }
+
+  function randomPiece() {
+    var name = PIECE_NAMES[Math.floor(Math.random() * PIECE_NAMES.length)];
+    var tmpl = TETROMINOES[name];
+    return {
+      name: name,
+      color: tmpl.color,
+      cells: tmpl.cells.map(function(cell) { return [cell[0], cell[1]]; }),
+      row: 0,
+      col: Math.floor(TCOLS / 2) - 1
+    };
+  }
+
+  function rotatePiece(piece) {
+    var maxR = 0;
+    for (var i = 0; i < piece.cells.length; i++) maxR = Math.max(maxR, piece.cells[i][1]);
+    var rotated = piece.cells.map(function(cell) { return [cell[1], maxR - cell[0]]; });
+    return rotated;
+  }
+
+  function pieceAbsPos(piece) {
+    return piece.cells.map(function(cell) { return [piece.row + cell[0], piece.col + cell[1]]; });
+  }
+
+  function collides(piece, cells) {
+    var abs = cells || pieceAbsPos(piece);
+    for (var i = 0; i < abs.length; i++) {
+      var r = abs[i][0], c = abs[i][1];
+      if (r < 0 || r >= TROWS || c < 0 || c >= TCOLS) return true;
+      if (board[r] && board[r][c]) return true;
+    }
+    return false;
+  }
+
+  function lockPiece() {
+    var abs = pieceAbsPos(currentPiece);
+    for (var i = 0; i < abs.length; i++) {
+      var r = abs[i][0], c = abs[i][1];
+      if (r >= 0 && r < TROWS && c >= 0 && c < TCOLS) board[r][c] = currentPiece.color;
+    }
+    clearLines();
+    currentPiece = nextPiece;
+    nextPiece = randomPiece();
+    if (collides(currentPiece, null)) { gameState = STATE_GAMEOVER; }
+  }
+
+  function clearLines() {
+    var cleared = 0;
+    for (var r = TROWS - 1; r >= 0; r--) {
+      var full = true;
+      for (var c = 0; c < TCOLS; c++) { if (!board[r][c]) { full = false; break; } }
+      if (full) {
+        board.splice(r, 1);
+        var newRow = [];
+        for (var c2 = 0; c2 < TCOLS; c2++) newRow[c2] = null;
+        board.unshift(newRow);
+        cleared++;
+        r++;
+      }
+    }
+    if (cleared > 0) {
+      linesCleared += cleared;
+      var pts = [0, 100, 300, 500, 800][Math.min(cleared, 4)] * level;
+      score += pts * scoreMult;
+      playSound_level_up && playSound_level_up();
+      if (Math.floor(linesCleared / LINES_PER_LEVEL) >= level) {
+        level++;
+        GRAVITY_INTERVAL = Math.max(0.1, 1.0 - (level - 1) * 0.08);
+      }
+    }
+  }
+
+  function movePiece(dc) {
+    var newCells = currentPiece.cells.map(function(cell) { return [cell[0], cell[1]]; });
+    var testPiece = { row: currentPiece.row, col: currentPiece.col + dc, cells: newCells };
+    if (!collides(testPiece, pieceAbsPos(testPiece))) currentPiece.col += dc;
+  }
+
+  function hardDrop() {
+    while (true) {
+      var testCells = currentPiece.cells.map(function(cell) { return [currentPiece.row + cell[0] + 1, currentPiece.col + cell[1]]; });
+      if (collides(currentPiece, testCells)) break;
+      currentPiece.row++;
+    }
+    lockPiece();
+    gravityTimer = 0;
+  }
+
+  function tryRotate() {
+    var rotated = rotatePiece(currentPiece);
+    var testPiece = { row: currentPiece.row, col: currentPiece.col, cells: rotated };
+    if (!collides(testPiece, pieceAbsPos(testPiece))) {
+      currentPiece.cells = rotated;
+    } else {
+      // Wall kick: try offset +1 and -1
+      testPiece.col = currentPiece.col + 1;
+      if (!collides(testPiece, pieceAbsPos(testPiece))) { currentPiece.cells = rotated; currentPiece.col += 1; return; }
+      testPiece.col = currentPiece.col - 1;
+      if (!collides(testPiece, pieceAbsPos(testPiece))) { currentPiece.cells = rotated; currentPiece.col -= 1; }
+    }
+  }
+
+  function ghostRow() {
+    var gr = currentPiece.row;
+    while (true) {
+      var testCells = currentPiece.cells.map(function(cell) { return [gr + cell[0] + 1, currentPiece.col + cell[1]]; });
+      if (collides(currentPiece, testCells)) break;
+      gr++;
+    }
+    return gr;
+  }
+
+  function drawTetris() {
+    ctx.fillStyle = BG_COLOR;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    // Draw board
+    for (var r = 0; r < TROWS; r++) {
+      for (var c = 0; c < TCOLS; c++) {
+        if (board[r][c]) {
+          ctx.fillStyle = board[r][c];
+          ctx.fillRect(c * CELL_SIZE + 1, r * CELL_SIZE + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+          ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(c * CELL_SIZE + 1, r * CELL_SIZE + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+        } else {
+          ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+        }
+      }
+    }
+
+    // Draw ghost piece
+    if (currentPiece) {
+      var gr2 = ghostRow();
+      var abs2 = currentPiece.cells.map(function(cell) { return [gr2 + cell[0], currentPiece.col + cell[1]]; });
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      for (var gi = 0; gi < abs2.length; gi++) {
+        ctx.fillRect(abs2[gi][1] * CELL_SIZE + 1, abs2[gi][0] * CELL_SIZE + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+      }
+    }
+
+    // Draw current piece
+    if (currentPiece) {
+      var abs3 = pieceAbsPos(currentPiece);
+      ctx.fillStyle = currentPiece.color;
+      for (var pi2 = 0; pi2 < abs3.length; pi2++) {
+        ctx.fillRect(abs3[pi2][1] * CELL_SIZE + 1, abs3[pi2][0] * CELL_SIZE + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(abs3[pi2][1] * CELL_SIZE + 1, abs3[pi2][0] * CELL_SIZE + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+      }
+    }
+
+    // HUD
+    ctx.font = 'bold 13px Courier New';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('SCORE: ' + score, 6, 18);
+    ctx.fillText('LEVEL: ' + level, 6, 34);
+    ctx.fillText('LINES: ' + linesCleared, 6, 50);
+    ctx.fillText('BEST: ' + highScore, 6, 66);
+  }
+
+  function updateTetris(dt) {
+    // Key repeat for left/right
+    if (keys['ArrowLeft'] || keys['a']) {
+      if (moveRepeatKey !== 'left') { moveRepeatKey = 'left'; moveRepeatTimer = MOVE_REPEAT_DELAY; movePiece(-1); }
+      else { moveRepeatTimer -= dt; if (moveRepeatTimer <= 0) { moveRepeatTimer = 0.05; movePiece(-1); } }
+    } else if (keys['ArrowRight'] || keys['d']) {
+      if (moveRepeatKey !== 'right') { moveRepeatKey = 'right'; moveRepeatTimer = MOVE_REPEAT_DELAY; movePiece(1); }
+      else { moveRepeatTimer -= dt; if (moveRepeatTimer <= 0) { moveRepeatTimer = 0.05; movePiece(1); } }
+    } else {
+      moveRepeatKey = null;
+    }
+
+    // Soft drop
+    var gInterval = GRAVITY_INTERVAL;
+    if (keys['ArrowDown'] || keys['s']) gInterval = 0.05;
+
+    gravityTimer += dt;
+    if (gravityTimer >= gInterval) {
+      gravityTimer = 0;
+      var testCells2 = currentPiece.cells.map(function(cell) { return [currentPiece.row + cell[0] + 1, currentPiece.col + cell[1]]; });
+      if (collides(currentPiece, testCells2)) {
+        lockPiece();
+      } else {
+        currentPiece.row++;
+      }
+    }
+
+    updateRuleTimers(dt);
+    if (score > highScore) { highScore = score; localStorage.setItem(HIGH_SCORE_KEY, highScore); }
+  }
+
+  document.addEventListener('keydown', function(e) {
+    keys[e.key] = true;
+    if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
+      if (gameState === STATE_PLAYING) { gameState = STATE_PAUSED; e.preventDefault(); return; }
+      if (gameState === STATE_PAUSED)  { gameState = STATE_PLAYING; e.preventDefault(); return; }
+    }
+    if (gameState !== STATE_PLAYING) {
+      if (e.key === 'Enter') {
+        score = 0; lives = PLAYER_LIVES; level = 1; linesCleared = 0;
+        GRAVITY_INTERVAL = 1.0; gameState = STATE_PLAYING;
+        newBoard(); currentPiece = randomPiece(); nextPiece = randomPiece();
+      }
+      return;
+    }
+    if (e.key === 'ArrowUp' || e.key === 'w') { tryRotate(); e.preventDefault(); }
+    if (e.key === ' ')                          { hardDrop(); e.preventDefault(); }
+    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'ArrowRight' || e.key === 'd') e.preventDefault();
+    if (e.key === 'ArrowDown' || e.key === 's') e.preventDefault();
+  });
+
+  function gameLoop(timestamp) {
+    if (lastTime === null) lastTime = timestamp;
+    var dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+    lastTime = timestamp;
+    if (gameState === STATE_PLAYING) updateTetris(dt);
+    drawTetris();
+    if (gameState === STATE_PAUSED)   drawOverlay('PAUSED', 'Press P to resume');
+    if (gameState === STATE_GAMEOVER) drawOverlay('GAME OVER', 'Score: ' + score + '  |  Enter to restart');
+    requestAnimationFrame(gameLoop);
+  }
+
+  newBoard();
+  currentPiece = randomPiece();
+  nextPiece = randomPiece();
+  requestAnimationFrame(gameLoop);
+
+{% endif %}{# end movement=falling #}
+
+})();
+</script>
+</body>
+</html>

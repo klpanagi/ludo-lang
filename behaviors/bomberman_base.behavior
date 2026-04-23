@@ -1,41 +1,23 @@
 ruleset BombermanBase {
-  tiles {
-    tile wall         symbol: "#"  solid: true   color: "#374151"
-    tile soft_wall    symbol: "s"  solid: true   color: "#92400e"
-    tile floor        symbol: "."  solid: false  color: "#111111"
-    tile player_spawn symbol: "P"  solid: false  color: "#111111"  tag: player_spawn
-    tile enemy_spawn  symbol: "E"  solid: false  color: "#111111"  tag: enemy_spawn
-  }
-  actors {
-    enemy "Balloom" {
-      spawn: tile "E"
-      color: "#f87171"
-      speed: 1.5
-      points: 100
-      behavior: random
+    engine {
+        type: grid
+        movement: continuous
+        bomb_system: true
+        blast_radius: 2
     }
-    enemy "Oneal" {
-      spawn: tile "E"
-      color: "#fb923c"
-      speed: 2.5
-      points: 200
-      behavior: chase
+    entities {
+        entity wall      { type: solid     symbol: "#"  color: "#4a4a4a" }
+        entity soft_wall { type: obstacle  symbol: "S"  color: "#8b7355" }
+        entity flame     { type: projectile  color: "#ff6600"  speed: 0  on_hit_wall: destroy  on_hit_entity: destroy }
+        entity enemy     { type: enemy    spawn: "E"  color: "#ff0000"  speed: 2.0  ai: random  points: 100 }
     }
-    projectile "Bomb" {
-      speed: 0
-      color: "#1f2937"
-      direction: from_player
-      on_hit_wall: ignore
-      on_hit_enemy: destroy_all
+    rules {
+        lose: lives_depleted
+        on_collision player flame: lose_life
+        on_collision player enemy: lose_life
     }
-  }
-  rules {
-    win: all_enemies_defeated
-    lose: lives_depleted
-    on_collision player enemy: lose_life
-  }
-  ui {
-    score: top_right
-    lives: top_left
-  }
+    ui {
+        score: top_left
+        lives: top_right
+    }
 }

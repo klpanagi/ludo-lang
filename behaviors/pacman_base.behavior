@@ -1,18 +1,26 @@
 ruleset PacManBase {
-  mechanics {
-    power_duration: 8
-    ghost_eat_score: 200
-    win_condition: all_dots_collected
-    lose_condition: lives_depleted
-  }
-  rules {
-    win: all_dots_collected
-    lose: lives_depleted
-    on_collision player enemy: lose_life
-  }
-  ui {
-    score: top_left
-    lives: bottom_left
-    level: top_right
-  }
+    entities {
+        entity wall   { type: solid       symbol: "#"  color: "#1e3a5f" }
+        entity dot    { type: collectible  symbol: "."  color: "#ffb8ae"  score: 10  respawn: false }
+        entity pellet { type: pickup      symbol: "o"  color: "#ffffff"  score: 50  effect: invincible  duration: 8.0 }
+        entity ghost  { type: enemy       spawn: "G"  color: "#ff0000"  speed: 3.0  ai: pathfinding  points: 200 }
+    }
+    rules {
+        win: all_dots_collected
+        lose: lives_depleted
+        on_collision player dot: collect, add_points
+        on_collision player pellet: collect, add_points, set $powered = true
+        on_collision player ghost when $powered == true: destroy, add_points
+        on_collision player ghost when $powered == false: lose_life
+        on_timer 8.0: set $powered = false
+    }
+    variables {
+        bool powered = false
+        int  eaten   = 0
+    }
+    ui {
+        score: top_left
+        lives: bottom_left
+        level: top_right
+    }
 }

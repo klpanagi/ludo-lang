@@ -1,0 +1,100 @@
+game "Arena Assault" {
+    canvas: 640x480
+    fps: 60
+    background: "#0f0f23"
+}
+
+engine {
+    type: top_down
+    shooting: true
+    ai_enemies: true
+}
+
+entities {
+    entity wall {
+        type: solid
+        symbol: "#"
+        color: "#374151"
+    }
+    entity crate {
+        type: solid
+        symbol: "B"
+        color: "#78350f"
+    }
+    entity drone {
+        type: enemy
+        spawn: "D"
+        color: "#ef4444"
+        speed: 2.0
+        ai: random
+        points: 75
+    }
+    entity hunter {
+        type: enemy
+        spawn: "H"
+        color: "#f97316"
+        speed: 3.0
+        ai: chase
+        points: 150
+    }
+    entity ghost_unit {
+        type: enemy
+        spawn: "G"
+        color: "#a855f7"
+        speed: 2.5
+        ai: ambush
+        points: 200
+    }
+    entity bullet {
+        type: projectile
+        color: "#fbbf24"
+        speed: 18
+        direction: from_player
+        on_hit_wall: destroy
+        on_hit_entity: destroy
+    }
+}
+
+map {
+    cell_size: 40
+    layout: [
+        "################",
+        "#P    D    D   #",
+        "#   BBB  BBB   #",
+        "#              #",
+        "#  H       H   #",
+        "#   BBB  BBB   #",
+        "#      G       #",
+        "#              #",
+        "#  D   BBB  D  #",
+        "#     G   G    #",
+        "#              #",
+        "#   H      H   #",
+        "################"
+    ]
+}
+
+player {
+    name: "Soldier"
+    spawn: "P"
+    color: "#60a5fa"
+    speed: 5
+    lives: 3
+    shoot {
+        projectile: bullet
+        cooldown: 0.2
+        key: space
+    }
+}
+
+rules {
+    win: all_enemies_defeated
+    lose: lives_depleted
+    on_collision player enemy: lose_life
+    on_collision bullet enemy: destroy, add_points
+}
+
+ui {
+    score: top_right
+    lives: top_left
+}

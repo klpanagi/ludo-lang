@@ -1,5 +1,7 @@
 import pytest
 import textwrap
+import tempfile
+import os
 from textx import metamodel_from_file, TextXSyntaxError, TextXSemanticError
 from conftest import ROOT, GRAMMAR_PATH, EXAMPLES_DIR
 
@@ -10,12 +12,13 @@ def mm():
 
 
 def parse(mm, src):
-    import tempfile, pathlib
-
     with tempfile.NamedTemporaryFile(suffix=".game", mode="w", delete=False) as f:
         f.write(textwrap.dedent(src))
         path = f.name
-    return mm.model_from_file(path)
+    try:
+        return mm.model_from_file(path)
+    finally:
+        os.unlink(path)
 
 
 class TestGrammarLoads:
@@ -34,409 +37,638 @@ class TestAllExamplesParseClean:
         model = mm.model_from_file(str(game_file))
         assert model is not None
         assert model.name
-        assert model.type in (
-            "pacman",
-            "snake",
-            "shooter",
-            "breakout",
-            "invaders",
-            "bomberman",
-            "frogger",
-            "sokoban",
-            "tetris",
-            "platformer",
-            "towerdefense",
-        )
+        assert model.engine is not None
+        assert model.engine.engine_type in ("grid", "top_down", "platformer", "physics")
 
 
-class TestGameModelFields:
-    def test_pacman_model(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman.game"))
-        assert m.type == "pacman"
-        assert m.map is not None
-        assert m.player is not None
-        assert m.player.color == "#ffff00"
-        assert m.player.lives == 3
-        assert len(m.actors.actors) == 4
+class TestEngineBlock:
+    def test_grid_engine_parses(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  cell_size: 20  movement: continuous  grow_on_eat: true }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 3 }
+        """)
+        assert m.engine.engine_type == "grid"
+        assert m.engine.cell_size == 20
+        assert m.engine.movement == "continuous"
+        assert m.engine.grow_on_eat is True
 
-    def test_snake_model(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "snake.game"))
-        assert m.type == "snake"
-        assert m.food is not None
-        assert m.food.respawn is True
+    def test_top_down_engine_parses(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 600x600 fps: 60 background: "#000" }
+            engine { type: top_down  shooting: true  ai_enemies: true  wave_system: true  wave_count: 5 }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 6  lives: 3 }
+        """)
+        assert m.engine.engine_type == "top_down"
+        assert m.engine.shooting is True
+        assert m.engine.wave_count == 5
 
-    def test_shooter_model(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "space_defender.game"))
-        assert m.type == "shooter"
-        assert m.player.shoot is not None
-        assert m.player.shoot.key == "space"
+    def test_platformer_engine_parses(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 800x500 fps: 60 background: "#000" }
+            engine { type: platformer  gravity: 900.0  jump_force: 420.0  scroll_speed: 0.0 }
+            entities { entity ground { type: solid  symbol: "#"  color: "#555" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 5  lives: 3 }
+        """)
+        assert m.engine.engine_type == "platformer"
+        assert m.engine.gravity == pytest.approx(900.0)
+        assert m.engine.jump_force == pytest.approx(420.0)
 
-    def test_breakout_model(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "breakout.game"))
-        assert m.type == "breakout"
+    def test_physics_engine_parses(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 600x700 fps: 60 background: "#000" }
+            engine { type: physics  ball_speed: 8.0  paddle_speed: 9.0  ball_size: 10 }
+            entities { entity brick { type: obstacle  symbol: "B"  color: "#f00"  score: 10 } }
+            player { name: "P"  start: (300, 650)  color: "#fff"  speed: 9  lives: 3 }
+        """)
+        assert m.engine.engine_type == "physics"
+        assert m.engine.ball_speed == pytest.approx(8.0)
+        assert m.engine.ball_size == 10
 
-    def test_invaders_model(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "space_invaders.game"))
-        assert m.type == "invaders"
+    def test_all_grid_movements(self, mm):
+        for movement in ("continuous", "step", "formation", "falling"):
+            m = parse(mm, f"""
+                game "G" {{ canvas: 400x400 fps: 60 background: "#000" }}
+                engine {{ type: grid  movement: {movement} }}
+                entities {{ entity wall {{ type: solid  symbol: "#"  color: "#333" }} }}
+                player {{ name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }}
+            """)
+            assert m.engine.movement == movement
 
-    def test_bomberman_model(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "bomberman.game"))
-        assert m.type == "bomberman"
-
-    def test_frogger_model(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "frogger.game"))
-        assert m.type == "frogger"
-
-    def test_sokoban_model(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "sokoban.game"))
-        assert m.type == "sokoban"
-
-    def test_tetris_model(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "tetris.game"))
-        assert m.type == "tetris"
-        assert m.map is None or m.player is None or m.type == "tetris"
-
-    def test_platformer_model(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "platformer.game"))
-        assert m.type == "platformer"
-
-    def test_towerdefense_model(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "towerdefense.game"))
-        assert m.type == "towerdefense"
-
-
-class TestNewDSLFeatures:
-    def test_enhanced_shooter_has_sounds(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "enhanced_shooter.game"))
-        assert m.sounds is not None
-        assert len(m.sounds.sounds) == 3
-        names = [s.name for s in m.sounds.sounds]
-        assert "shoot" in names
-        assert "die" in names
-
-    def test_enhanced_shooter_has_animations(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "enhanced_shooter.game"))
-        assert m.animations is not None
-        assert len(m.animations.animations) >= 1
-        effects = [a.effect for a in m.animations.animations]
-        assert "explode" in effects
-
-    def test_enhanced_shooter_has_items(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "enhanced_shooter.game"))
-        assert m.items is not None
-        assert len(m.items.items) == 2
-        item_names = [i.name for i in m.items.items]
-        assert "health_pack" in item_names
-
-    def test_enhanced_shooter_has_levels(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "enhanced_shooter.game"))
-        assert m.levels is not None
-        assert len(m.levels.levels) == 3
-        assert m.levels.levels[0].number == 1
-        assert m.levels.levels[1].speed_multiplier == pytest.approx(1.3)
-
-    def test_enhanced_snake_has_sounds(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "enhanced_snake.game"))
-        assert m.sounds is not None
-        assert len(m.sounds.sounds) >= 2
-
-    def test_enhanced_snake_has_items(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "enhanced_snake.game"))
-        assert m.items is not None
-        assert len(m.items.items) >= 1
+    def test_invalid_engine_type_rejected(self, mm):
+        with pytest.raises((TextXSyntaxError, TextXSemanticError, Exception)):
+            parse(mm, """
+                game "G" { canvas: 400x400 fps: 60 background: "#000" }
+                engine { type: pong }
+                player { name: "P"  start: (1, 1)  color: "#fff"  speed: 3  lives: 1 }
+            """)
 
 
-class TestActorTypeSeparation:
-    def test_enemies_are_enemy_def(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman.game"))
-        for actor in m.actors.actors:
-            assert actor.__class__.__name__ == "EnemyDef"
+class TestEntitiesBlock:
+    def test_solid_entity_parses(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#334455" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }
+        """)
+        assert len(m.entities.entities) == 1
+        e = m.entities.entities[0]
+        assert e.name == "wall"
+        assert e.entity_type == "solid"
+        assert e.symbol == "#"
+        assert e.color == "#334455"
 
-    def test_projectile_in_shooter(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "space_defender.game"))
-        classes = [a.__class__.__name__ for a in m.actors.actors]
-        assert "ProjectileDef" in classes
-        assert "EnemyDef" in classes
+    def test_enemy_entity_with_spawn_and_ai(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity ghost { type: enemy  spawn: "G"  color: "#ff0000"  speed: 3.0  ai: pathfinding  points: 200 } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 3 }
+        """)
+        e = m.entities.entities[0]
+        assert e.entity_type == "enemy"
+        assert e.spawn_symbol == "G"
+        assert e.ai == "pathfinding"
+        assert e.speed == pytest.approx(3.0)
+        assert e.points == 200
 
-    def test_enemy_behavior_values(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman.game"))
-        behaviors = {a.name: a.behavior for a in m.actors.actors}
-        assert behaviors["Blinky"] == "chase"
-        assert behaviors["Pinky"] == "ambush"
-        assert behaviors["Inky"] == "flanker"
-        assert behaviors["Clyde"] == "random"
+    def test_collectible_entity_with_respawn(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity food { type: collectible  symbol: "F"  color: "#f00"  score: 10  respawn: true } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }
+        """)
+        e = m.entities.entities[0]
+        assert e.entity_type == "collectible"
+        assert e.score == 10
+        assert e.respawn is True
+
+    def test_projectile_entity_with_direction_and_hit_actions(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: top_down  shooting: true }
+            entities {
+                entity wall { type: solid  symbol: "#"  color: "#333" }
+                entity bullet { type: projectile  color: "#fbbf24"  speed: 18  direction: from_player  on_hit_wall: destroy  on_hit_entity: destroy }
+            }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 6  lives: 3 }
+        """)
+        assert len(m.entities.entities) == 2
+        bullet = next(e for e in m.entities.entities if e.name == "bullet")
+        assert bullet.entity_type == "projectile"
+        assert bullet.direction == "from_player"
+        assert bullet.on_hit_wall == "destroy"
+        assert bullet.on_hit_entity == "destroy"
+
+    def test_pickup_entity_with_effect(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity pellet { type: pickup  symbol: "o"  color: "#fff"  score: 50  effect: invincible  duration: 8.0 } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 3 }
+        """)
+        e = m.entities.entities[0]
+        assert e.entity_type == "pickup"
+        assert e.effect == "invincible"
+        assert e.duration == pytest.approx(8.0)
+
+    def test_multiple_entities(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities {
+                entity wall  { type: solid       symbol: "#"  color: "#333" }
+                entity food  { type: collectible  symbol: "F"  color: "#f00"  score: 10 }
+                entity ghost { type: enemy        spawn: "G"   color: "#f0f"  speed: 2.0  ai: chase  points: 100 }
+            }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 3 }
+        """)
+        assert len(m.entities.entities) == 3
+        names = [e.name for e in m.entities.entities]
+        assert "wall" in names
+        assert "food" in names
+        assert "ghost" in names
+
+    def test_all_entity_types_valid(self, mm):
+        for et in ("solid", "open", "collectible", "enemy", "projectile", "pickup", "obstacle", "target", "explosive"):
+            m = parse(mm, f"""
+                game "G" {{ canvas: 400x400 fps: 60 background: "#000" }}
+                engine {{ type: grid  movement: continuous }}
+                entities {{ entity e {{ type: {et}  symbol: "X"  color: "#333" }} }}
+                player {{ name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }}
+            """)
+            assert m.entities.entities[0].entity_type == et
+
+    def test_all_ai_types_valid(self, mm):
+        for ai in ("chase", "formation", "random", "patrol", "pathfinding", "ambush", "none"):
+            m = parse(mm, f"""
+                game "G" {{ canvas: 400x400 fps: 60 background: "#000" }}
+                engine {{ type: grid  movement: continuous }}
+                entities {{ entity e {{ type: enemy  spawn: "E"  color: "#f00"  speed: 2.0  ai: {ai} }} }}
+                player {{ name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }}
+            """)
+            assert m.entities.entities[0].ai == ai
 
 
-class TestSpawnResolution:
-    def test_player_spawn_from_tile(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "space_defender.game"))
-        assert m.player.spawn_tile is not None
-        assert m.player.spawn_tile == "P"
+class TestRulesBlock:
+    def test_win_lose_conditions(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 3 }
+            rules {
+                win: all_dots_collected
+                lose: lives_depleted
+            }
+        """)
+        assert m.rules.win == "all_dots_collected"
+        assert m.rules.lose == "lives_depleted"
 
-    def test_player_start_coords(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman.game"))
+    def test_collision_rule_parses(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities {
+                entity food  { type: collectible  symbol: "F"  color: "#f00"  score: 10 }
+                entity ghost { type: enemy  spawn: "G"  color: "#f0f"  speed: 2.0  ai: chase }
+            }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 3 }
+            rules {
+                lose: lives_depleted
+                on_collision player food: collect, add_points, grow
+                on_collision player ghost: lose_life
+            }
+        """)
+        assert len(m.rules.collision_rules) == 2
+        r0 = m.rules.collision_rules[0]
+        assert r0.subject == "player"
+        assert r0.object == "food"
+        assert len(r0.actions) == 3
+
+    def test_conditional_collision_rule(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity ghost { type: enemy  spawn: "G"  color: "#f0f"  speed: 2.0  ai: chase } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 3 }
+            rules {
+                lose: lives_depleted
+                on_collision player ghost when $powered == true: destroy, add_points
+                on_collision player ghost when $powered == false: lose_life
+            }
+            variables {
+                bool powered = false
+            }
+        """)
+        cond_rules = [r for r in m.rules.collision_rules if r.condition is not None]
+        assert len(cond_rules) == 2
+        r = cond_rules[0]
+        assert r.condition.op == "=="
+        assert r.condition.left.name == "powered"
+
+    def test_timer_rule_parses(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity ghost { type: enemy  spawn: "G"  color: "#f0f"  speed: 2.0  ai: chase } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 3 }
+            rules {
+                lose: lives_depleted
+                on_timer 8.0: set $powered = false
+            }
+            variables { bool powered = true }
+        """)
+        assert len(m.rules.timer_rules) == 1
+        tr = m.rules.timer_rules[0]
+        assert tr.interval == pytest.approx(8.0)
+        assert len(tr.actions) == 1
+        assert tr.actions[0].__class__.__name__ == "SetVarAction"
+
+    def test_set_var_action(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity pellet { type: pickup  symbol: "o"  color: "#fff"  score: 50 } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 3 }
+            rules {
+                lose: lives_depleted
+                on_collision player pellet: collect, add_points, set $powered = true
+            }
+            variables { bool powered = false }
+        """)
+        rule = m.rules.collision_rules[0]
+        set_actions = [a for a in rule.actions if a.__class__.__name__ == "SetVarAction"]
+        assert len(set_actions) == 1
+        assert set_actions[0].var_name == "powered"
+
+    def test_spawn_action_at_random(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity ghost { type: enemy  spawn: "G"  color: "#f0f"  speed: 2.0  ai: chase } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 3 }
+            rules {
+                lose: lives_depleted
+                on_timer 5.0: spawn ghost at random
+            }
+        """)
+        tr = m.rules.timer_rules[0]
+        spawn = tr.actions[0]
+        assert spawn.__class__.__name__ == "SpawnAction"
+        assert spawn.entity == "ghost"
+        assert spawn.loc_type == "random"
+
+    def test_all_win_conditions_valid(self, mm):
+        for win in ("all_dots_collected", "all_enemies_defeated", "all_targets_filled", "survival", "reached_exit"):
+            m = parse(mm, f"""
+                game "G" {{ canvas: 400x400 fps: 60 background: "#000" }}
+                engine {{ type: grid  movement: continuous }}
+                entities {{ entity wall {{ type: solid  symbol: "#"  color: "#333" }} }}
+                player {{ name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }}
+                rules {{ win: {win}  lose: lives_depleted }}
+            """)
+            assert m.rules.win == win
+
+
+class TestVariablesBlock:
+    def test_variables_parse(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }
+            variables {
+                bool powered = false
+                int  score   = 0
+                float timer  = 0.0
+            }
+        """)
+        assert m.variables is not None
+        assert len(m.variables.vars) == 3
+        vmap = {v.name: v for v in m.variables.vars}
+        assert vmap["powered"].type == "bool"
+        assert vmap["score"].type == "int"
+        assert vmap["timer"].type == "float"
+
+    def test_variable_default_bool(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }
+            variables { bool powered = false }
+        """)
+        v = m.variables.vars[0]
+        assert v.default_val.val == "false"
+
+    def test_variable_default_int(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }
+            variables { int score = 42 }
+        """)
+        v = m.variables.vars[0]
+        assert v.default_val.val == 42
+
+
+class TestPlayerBlock:
+    def test_player_with_spawn_symbol(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            map { cell_size: 20  layout: ["####", "#P #", "####"] }
+            player { name: "Hero"  spawn: "P"  color: "#0f0"  speed: 4  lives: 3 }
+        """)
+        assert m.player.spawn_symbol == "P"
+        assert m.player.name == "Hero"
+        assert m.player.color == "#0f0"
+
+    def test_player_with_start_coords(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player { name: "Hero"  start: (13, 22)  color: "#ff0"  speed: 4  lives: 3 }
+        """)
         assert m.player.start_x == 13
         assert m.player.start_y == 22
 
-    def test_enemy_spawn_tile(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "space_defender.game"))
-        enemies = [a for a in m.actors.actors if a.__class__.__name__ == "EnemyDef"]
-        assert any(e.spawn_tile == "E" for e in enemies)
+    def test_player_with_shoot_block(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: top_down  shooting: true }
+            entities {
+                entity bullet { type: projectile  color: "#fbbf24"  speed: 18  direction: from_player  on_hit_wall: destroy  on_hit_entity: destroy }
+            }
+            player {
+                name: "Commander"
+                start: (5, 5)
+                color: "#60a5fa"
+                speed: 6
+                lives: 3
+                shoot {
+                    projectile: bullet
+                    cooldown: 0.2
+                    key: space
+                }
+            }
+        """)
+        assert m.player.shoot is not None
+        assert m.player.shoot.projectile_name == "bullet"
+        assert m.player.shoot.cooldown == pytest.approx(0.2)
+        assert m.player.shoot.key == "space"
+
+    def test_player_snake_extras(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous  grow_on_eat: true }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player {
+                name: "Serpent"
+                start: (10, 10)
+                color: "#0a0"
+                speed: 8
+                lives: 1
+                controls: arrows | wasd
+                start_length: 3
+                start_direction: right
+                head_color: "#0f0"
+            }
+        """)
+        assert m.player.head_color == "#0f0"
+        assert m.player.start_length == 3
+        assert m.player.start_direction == "right"
+        schemes = [s for s in m.player.controls.schemes]
+        assert "arrows" in schemes
+        assert "wasd" in schemes
+
+
+class TestMapBlock:
+    def test_map_with_layout(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            map {
+                cell_size: 20
+                layout: ["####", "#  #", "# P#", "####"]
+            }
+            player { name: "P"  spawn: "P"  color: "#fff"  speed: 4  lives: 1 }
+        """)
+        assert m.map is not None
+        assert m.map.cell_size == 20
+        assert len(m.map.layout) == 4
+
+    def test_map_with_border(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            map { cell_size: 20  border: wall }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }
+        """)
+        assert m.map.border == "wall"
+
+
+class TestOptionalSections:
+    def test_sounds_parse(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }
+            sounds {
+                sound eat { type: beep  frequency: 660  duration: 0.08  volume: 0.3 }
+                sound die { type: explosion  duration: 0.35  volume: 0.5 }
+            }
+        """)
+        assert m.sounds is not None
+        assert len(m.sounds.sounds) == 2
+        names = [s.name for s in m.sounds.sounds]
+        assert "eat" in names
+        assert "die" in names
+
+    def test_levels_parse(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }
+            levels {
+                level 1 { speed_multiplier: 1.0  enemy_count: 6 }
+                level 2 { speed_multiplier: 1.3  enemy_count: 9 }
+            }
+        """)
+        assert m.levels is not None
+        assert len(m.levels.levels) == 2
+        assert m.levels.levels[1].speed_multiplier == pytest.approx(1.3)
+
+    def test_animations_parse(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }
+            animations {
+                animation enemy_death { effect: explode  duration: 0.5  color: "#ff6600"  particle_count: 12 }
+            }
+        """)
+        assert m.animations is not None
+        assert m.animations.animations[0].effect == "explode"
+        assert m.animations.animations[0].particle_count == 12
+
+    def test_items_parse(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }
+            items {
+                item boost { symbol: "*"  color: "#facc15"  score: 20  effect: speed_up  duration: 3.0  drop_chance: 0.2 }
+            }
+        """)
+        assert m.items is not None
+        item = m.items.items[0]
+        assert item.name == "boost"
+        assert item.effect == "speed_up"
+        assert item.drop_chance == pytest.approx(0.2)
+
+    def test_ui_block_parses(self, mm):
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }
+            ui { score: top_left  lives: top_right  level: top_center }
+        """)
+        assert m.ui.score_pos == "top_left"
+        assert m.ui.lives_pos == "top_right"
+        assert m.ui.level_pos == "top_center"
 
 
 class TestInvalidModels:
-    def test_invalid_game_type_rejected(self, mm):
-        src = """
-            game "Bad" {
-                type: pong
-                canvas: 400x400
-                fps: 60
-            }
-            map { cell_size: 20 }
-            player {
-                name: "P"
-                start: (1, 1)
-                color: "#fff"
-                speed: 3
-            }
-        """
+    def test_invalid_engine_type_rejected(self, mm):
         with pytest.raises((TextXSyntaxError, TextXSemanticError, Exception)):
-            parse(mm, src)
+            parse(mm, """
+                game "Bad" { canvas: 400x400 fps: 60 background: "#000" }
+                engine { type: pong }
+                player { name: "P"  start: (1, 1)  color: "#fff"  speed: 3  lives: 1 }
+            """)
+
+    def test_invalid_entity_type_rejected(self, mm):
+        with pytest.raises((TextXSyntaxError, TextXSemanticError, Exception)):
+            parse(mm, """
+                game "Bad" { canvas: 400x400 fps: 60 background: "#000" }
+                engine { type: grid  movement: continuous }
+                entities { entity x { type: flying  symbol: "X"  color: "#fff" } }
+                player { name: "P"  start: (1, 1)  color: "#fff"  speed: 3  lives: 1 }
+            """)
 
     def test_invalid_sound_type_rejected(self, mm):
-        src = """
-            game "Bad" {
-                type: snake
-                canvas: 400x400
-                fps: 60
-            }
-            map { cell_size: 20 }
-            player {
-                name: "P"
-                start: (1, 1)
-                color: "#fff"
-                speed: 3
-            }
-            sounds {
-                sound sfx { type: laser }
-            }
-        """
         with pytest.raises((TextXSyntaxError, TextXSemanticError, Exception)):
-            parse(mm, src)
+            parse(mm, """
+                game "Bad" { canvas: 400x400 fps: 60 background: "#000" }
+                engine { type: grid  movement: continuous }
+                entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+                player { name: "P"  start: (1, 1)  color: "#fff"  speed: 3  lives: 1 }
+                sounds { sound sfx { type: laser } }
+            """)
 
     def test_invalid_item_effect_rejected(self, mm):
-        src = """
-            game "Bad" {
-                type: snake
-                canvas: 400x400
-                fps: 60
-            }
-            map { cell_size: 20 }
-            player {
-                name: "P"
-                start: (1, 1)
-                color: "#fff"
-                speed: 3
-            }
-            items {
-                item gem {
-                    symbol: "*"
-                    color: "#fff"
-                    effect: fly
-                }
-            }
-        """
         with pytest.raises((TextXSyntaxError, TextXSemanticError, Exception)):
-            parse(mm, src)
+            parse(mm, """
+                game "Bad" { canvas: 400x400 fps: 60 background: "#000" }
+                engine { type: grid  movement: continuous }
+                entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+                player { name: "P"  start: (1, 1)  color: "#fff"  speed: 3  lives: 1 }
+                items { item gem { symbol: "*"  color: "#fff"  effect: fly } }
+            """)
 
-
-class TestPhase1BehaviorDSL:
-    def test_variables_block_parses(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman_behavior.game"))
-        assert m.variables is not None
-        assert len(m.variables.vars) == 2
-        var_names = [v.name for v in m.variables.vars]
-        assert "ghost_frightened" in var_names
-        assert "ghost_eaten_count" in var_names
-
-    def test_variable_types(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman_behavior.game"))
-        vmap = {v.name: v for v in m.variables.vars}
-        assert vmap["ghost_frightened"].type == "bool"
-        assert vmap["ghost_eaten_count"].type == "int"
-
-    def test_variable_defaults(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman_behavior.game"))
-        vmap = {v.name: v for v in m.variables.vars}
-        assert vmap["ghost_frightened"].default_val.val == "false"
-        assert vmap["ghost_eaten_count"].default_val.val == 0
-
-    def test_conditional_collision_rule(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman_behavior.game"))
-        rules = m.rules.collision_rules
-        assert len(rules) >= 2
-        cond_rules = [r for r in rules if r.condition is not None]
-        assert len(cond_rules) >= 1
-        r = cond_rules[0]
-        assert r.condition.op in ("==", "!=", "<", ">", "<=", ">=")
-
-    def test_timer_rule_parses(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman_behavior.game"))
-        assert m.rules.timer_rules is not None
-        assert len(m.rules.timer_rules) >= 1
-        tr = m.rules.timer_rules[0]
-        assert tr.interval == 8.0
-
-    def test_multi_action_rule(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman_behavior.game"))
-        multi = [r for r in m.rules.collision_rules if len(r.actions) > 1]
-        assert len(multi) >= 1
-
-    def test_set_var_action(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman_behavior.game"))
-        set_actions = []
-        for r in m.rules.collision_rules + m.rules.timer_rules:
-            for a in r.actions:
-                if a.__class__.__name__ == "SetVarAction":
-                    set_actions.append(a)
-        assert len(set_actions) >= 1
-        assert set_actions[0].var_name == "ghost_eaten_count"
-
-    def test_all_original_examples_still_parse(self, mm):
-        for f in sorted(EXAMPLES_DIR.glob("*.game")):
-            if f.stem in ("pacman_behavior", "shooter_waves"):
-                continue
-            m = mm.model_from_file(str(f))
-            assert m is not None
-
-    def test_backward_compat_single_action(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "space_defender.game"))
-        if m.rules and m.rules.collision_rules:
-            rule = m.rules.collision_rules[0]
-            assert len(rule.actions) == 1
-            assert rule.actions[0].__class__.__name__ == "SimpleRuleAction"
-            assert rule.actions[0].action == "lose_life"
-
-
-class TestTilesDef:
-    def test_pacman_has_expected_tiles(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman.game"))
-        tile_names = [t.name for t in m.tiles.tiles]
-        assert "wall" in tile_names
-        assert "dot" in tile_names
-        assert "power_pellet" in tile_names
-
-    def test_wall_tile_is_solid(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman.game"))
-        wall = next(t for t in m.tiles.tiles if t.name == "wall")
-        assert wall.solid is True
-        assert wall.symbol == "#"
-
-    def test_collectible_tile_has_score(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman.game"))
-        dot = next(t for t in m.tiles.tiles if t.name == "dot")
-        assert dot.collectible is True
-        assert dot.score == 10
-
-
-class TestMapDef:
-    def test_map_has_layout(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman.game"))
-        assert m.map.layout
-        assert len(m.map.layout) > 0
-        assert all(isinstance(row, str) for row in m.map.layout)
-
-    def test_map_cell_size(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman.game"))
-        assert m.map.cell_size == 20
-
-    def test_map_layout_rows_consistent_length(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman.game"))
-        lengths = [len(row) for row in m.map.layout]
-        assert max(lengths) - min(lengths) <= 2
-
-
-class TestUIDef:
-    def test_ui_positions(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "pacman.game"))
-        assert m.ui is not None
-        assert m.ui.score_pos == "top_left"
-        assert m.ui.lives_pos == "bottom_left"
-        assert m.ui.level_pos == "top_right"
-
-    def test_missing_ui_is_none(self, mm):
-        m = mm.model_from_file(str(EXAMPLES_DIR / "snake.game"))
-        pass
+    def test_invalid_ai_type_rejected(self, mm):
+        with pytest.raises((TextXSyntaxError, TextXSemanticError, Exception)):
+            parse(mm, """
+                game "Bad" { canvas: 400x400 fps: 60 background: "#000" }
+                engine { type: grid  movement: continuous }
+                entities { entity enemy { type: enemy  spawn: "E"  color: "#f00"  ai: smarty } }
+                player { name: "P"  start: (1, 1)  color: "#fff"  speed: 3  lives: 1 }
+            """)
 
 
 class TestBehaviorGrammar:
     @pytest.fixture(scope="class")
     def behavior_mm(self):
-        from textx import metamodel_from_file
-
         return metamodel_from_file(str(ROOT / "grammar" / "behavior.tx"))
 
     def test_behavior_grammar_loads(self, behavior_mm):
         assert behavior_mm is not None
 
-    def test_behavior_file_parses(self, behavior_mm):
-        f = ROOT / "behaviors" / "shooter_base.behavior"
-        model = behavior_mm.model_from_file(str(f))
-        assert len(model.rulesets) == 1
-        assert model.rulesets[0].name == "ShooterBase"
+    def test_empty_ruleset_parses(self, behavior_mm):
+        with tempfile.NamedTemporaryFile(suffix=".behavior", mode="w", delete=False) as f:
+            f.write("ruleset Empty {}")
+            path = f.name
+        try:
+            model = behavior_mm.model_from_file(path)
+            assert len(model.rulesets) == 1
+            assert model.rulesets[0].name == "Empty"
+        finally:
+            os.unlink(path)
 
-    def test_ruleset_has_tiles(self, behavior_mm):
-        model = behavior_mm.model_from_file(
-            str(ROOT / "behaviors" / "shooter_base.behavior")
-        )
-        rs = model.rulesets[0]
-        assert rs.tiles is not None
-        assert len(rs.tiles.tiles) > 0
+    def test_ruleset_with_entities_and_rules(self, behavior_mm):
+        with tempfile.NamedTemporaryFile(suffix=".behavior", mode="w", delete=False) as f:
+            f.write(textwrap.dedent("""
+                ruleset BaseShooter {
+                    entities {
+                        entity wall   { type: solid  symbol: "#"  color: "#1e293b" }
+                        entity enemy  { type: enemy  spawn: "E"  color: "#ef4444"  speed: 2.5  ai: chase  points: 100 }
+                        entity bullet { type: projectile  color: "#fbbf24"  speed: 18  direction: from_player  on_hit_wall: destroy  on_hit_entity: destroy }
+                    }
+                    rules {
+                        win: all_enemies_defeated
+                        lose: lives_depleted
+                        on_collision player enemy: lose_life
+                        on_collision bullet enemy: destroy, add_points
+                    }
+                }
+            """))
+            path = f.name
+        try:
+            model = behavior_mm.model_from_file(path)
+            rs = model.rulesets[0]
+            assert rs.name == "BaseShooter"
+            assert rs.entities is not None
+            assert len(rs.entities.entities) == 3
+            assert rs.rules.win == "all_enemies_defeated"
+        finally:
+            os.unlink(path)
 
-    def test_ruleset_has_actors(self, behavior_mm):
-        model = behavior_mm.model_from_file(
-            str(ROOT / "behaviors" / "shooter_base.behavior")
-        )
-        rs = model.rulesets[0]
-        assert rs.actors is not None
 
-    def test_ruleset_has_rules(self, behavior_mm):
-        model = behavior_mm.model_from_file(
-            str(ROOT / "behaviors" / "shooter_base.behavior")
-        )
-        rs = model.rulesets[0]
-        assert rs.rules is not None
-        assert rs.rules.win == "all_enemies_defeated"
-
-    def test_pacman_base_behavior_parses(self, behavior_mm):
-        model = behavior_mm.model_from_file(
-            str(ROOT / "behaviors" / "pacman_base.behavior")
-        )
-        assert model.rulesets[0].name == "PacManBase"
-
-
-class TestGameImportDirectives:
-    @pytest.fixture(scope="class")
-    def mm(self):
-        from textx import metamodel_from_file
-
-        return metamodel_from_file(str(ROOT / "grammar" / "game.tx"))
-
+class TestImportDirectives:
     def test_import_directive_parses(self, mm):
-        m = mm.model_from_file(str(ROOT / "examples" / "space_defender_v2.game"))
+        m = parse(mm, """
+            import "../behaviors/dummy.behavior"
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }
+        """)
         assert len(m.imports) == 1
-        assert "shooter_base.behavior" in m.imports[0].path
+        assert "dummy.behavior" in m.imports[0].path
 
     def test_use_directive_parses(self, mm):
-        m = mm.model_from_file(str(ROOT / "examples" / "space_defender_v2.game"))
+        m = parse(mm, """
+            game "G" { canvas: 400x400 fps: 60 background: "#000" }
+            use ruleset MyBase
+            engine { type: grid  movement: continuous }
+            entities { entity wall { type: solid  symbol: "#"  color: "#333" } }
+            player { name: "P"  start: (5, 5)  color: "#fff"  speed: 4  lives: 1 }
+        """)
         assert len(m.uses) == 1
-        assert m.uses[0].ruleset_name == "ShooterBase"
-
-    def test_existing_games_unaffected(self, mm):
-        for f in sorted((ROOT / "examples").glob("*.game")):
-            if "v2" in f.stem:
-                continue
-            model = mm.model_from_file(str(f))
-            assert model is not None
-            assert len(model.imports) == 0
-            assert len(model.uses) == 0
+        assert m.uses[0].ruleset_name == "MyBase"

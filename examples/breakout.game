@@ -1,60 +1,67 @@
-game "Cyber Breakout" {
-    type: breakout
-    canvas: 480 x 600
+game "Breakout" {
+    canvas: 600x700
     fps: 60
-    background: "#020617"
+    background: "#0d1117"
 }
 
-tiles {
-    tile wall         symbol: "#"  solid: true   color: "#1e293b"
-    tile empty        symbol: "."  solid: false  color: "#020617"
-    tile brick_red    symbol: "R"  solid: true   color: "#ef4444"  collectible: true  score: 30
-    tile brick_orange symbol: "O"  solid: true   color: "#f97316"  collectible: true  score: 20
-    tile brick_yellow symbol: "Y"  solid: true   color: "#eab308"  collectible: true  score: 15
-    tile brick_green  symbol: "G"  solid: true   color: "#22c55e"  collectible: true  score: 10
-    tile brick_blue   symbol: "B"  solid: true   color: "#3b82f6"  collectible: true  score: 5
-    tile paddle_zone  symbol: "P"  solid: false  color: "#020617"  tag: player_spawn
+engine {
+    type: physics
+    ball_speed: 8.0
+    paddle_speed: 9.0
+    ball_size: 10
+}
+
+entities {
+    entity brick {
+        type: obstacle
+        symbol: "B"
+        color: "#ef4444"
+        score: 10
+    }
+    entity gold_brick {
+        type: obstacle
+        symbol: "G"
+        color: "#ffd700"
+        score: 30
+    }
+    entity paddle {
+        type: solid
+        color: "#60a5fa"
+    }
+    entity ball {
+        type: projectile
+        color: "#ffffff"
+        speed: 8
+        on_hit_wall: bounce
+        on_hit_entity: destroy
+    }
 }
 
 map {
-    cell_size: 32
+    cell_size: 40
     layout: [
-        "###############",
-        "#.............#",
-        "#RRRRRRRRRRRRR#",
-        "#OOOOOOOOOOOOO#",
-        "#YYYYYYYYYYYYY#",
-        "#GGGGGGGGGGGGG#",
-        "#BBBBBBBBBBBBB#",
-        "#.............#",
-        "#.............#",
-        "#.............#",
-        "#.............#",
-        "#.............#",
-        "#.............#",
-        "#.............#",
-        "#.....P.......#",
-        "#.............#",
-        "###############"
+        "BBBBBBBBBBBBBBB",
+        "GGGGGGGGGGGGGGG",
+        "BBBBBBBBBBBBBBB",
+        "GGGGGGGGGGGGGGG",
+        "BBBBBBBBBBBBBBB",
+        "GGGGGGGGGGGGGGG"
     ]
 }
 
 player {
     name: "Paddle"
-    spawn: tile "P"
-    shape: square
+    start: (300, 650)
     color: "#60a5fa"
     speed: 9
     lives: 3
-    controls: arrows | wasd
 }
 
 rules {
-    win: all_dots_collected
     lose: lives_depleted
 }
 
 ui {
-    score: top_right
-    lives: top_left
+    score: top_left
+    lives: top_right
 }

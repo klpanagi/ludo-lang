@@ -1,0 +1,1196 @@
+{% set OVERLAY_COLOR = '#60a5fa' %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ game.name }}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: {{ game.background or '#050510' }};
+      background-image: radial-gradient(ellipse at 50% 30%, rgba(255,255,255,0.04) 0%, transparent 65%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Courier New', monospace;
+      color: #fff;
+    }
+    .game-title {
+      font-size: 17px;
+      font-weight: bold;
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      color: {{ OVERLAY_COLOR }};
+      text-shadow: 0 0 14px {{ OVERLAY_COLOR }}, 0 0 30px {{ OVERLAY_COLOR }}55;
+      margin-bottom: 12px;
+      user-select: none;
+    }
+    .canvas-frame {
+      position: relative;
+      display: inline-block;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.07),
+        0 0 24px {{ OVERLAY_COLOR }}30,
+        0 0 56px {{ OVERLAY_COLOR }}14;
+      border-radius: 2px;
+    }
+    canvas { display: block; }
+    .controls {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #4a5568;
+      display: flex;
+      gap: 5px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: {{ game.canvas.width }}px;
+      user-select: none;
+    }
+    kbd {
+      display: inline-block;
+      padding: 1px 5px;
+      border: 1px solid #2d3748;
+      border-bottom-width: 2px;
+      border-radius: 3px;
+      background: #161e2e;
+      color: #64748b;
+      font-family: 'Courier New', monospace;
+      font-size: 10px;
+      line-height: 1.5;
+    }
+    .sep { color: #2d3748; margin: 0 2px; }
+  </style>
+</head>
+<body>
+<div class="game-title">{{ game.name }}</div>
+<div class="canvas-frame">
+<canvas id="gameCanvas" width="{{ game.canvas.width }}" height="{{ game.canvas.height }}"></canvas>
+</div>
+<div class="controls">
+{% if engine.shooting %}<kbd>WASD</kbd> / <kbd>↑↓←→</kbd> move <span class="sep">|</span> <kbd>Space</kbd> shoot{% elif engine.tower_placement %}<kbd>WASD</kbd> / <kbd>↑↓←→</kbd> move <span class="sep">|</span> <kbd>Click</kbd> place tower{% else %}<kbd>WASD</kbd> / <kbd>↑↓←→</kbd> move{% endif %} <span class="sep">|</span> <kbd>Enter</kbd> restart
+</div>
+<script>
+(function() {
+  'use strict';
+
+  /* ---- CONSTANTS (from DSL model) ---- */
+  var CANVAS_W  = {{ game.canvas.width }};
+  var CANVAS_H  = {{ game.canvas.height }};
+  var CELL      = {{ cell_size }};
+  var BG_COLOR  = "{{ game.background }}";
+
+  var SHOOTING      = {{ 'true' if engine.shooting else 'false' }};
+  var AI_ENEMIES    = {{ 'true' if engine.ai_enemies else 'false' }};
+  var TOWER_MODE    = {{ 'true' if engine.tower_placement else 'false' }};
+  var WAVE_SYSTEM   = {{ 'true' if engine.wave_system else 'false' }};
+  var WAVE_COUNT    = {{ engine.wave_count or 5 }};
+  var ENEMIES_PER_WAVE = {{ engine.enemies_per_wave or 8 }};
+  var START_GOLD    = {{ engine.start_gold or 0 }};
+  var ENEMY_HP      = {{ engine.enemy_hp or 1 }};
+  var ENEMY_REWARD  = {{ engine.enemy_reward or 10 }};
+
+  /* ---- ENTITY DEFINITIONS (from entities list) ---- */
+  var ENTITY_DEFS = {
+{% for ent in entities %}
+    {{ ent.name | tojson }}: {
+      name: {{ ent.name | tojson }},
+      entity_type: {{ ent.entity_type | tojson }},
+      symbol: {{ ent.symbol | tojson if ent.symbol else 'null' }},
+      spawn_symbol: {{ ent.spawn_symbol | tojson if ent.spawn_symbol else 'null' }},
+      color: {{ ent.color | tojson if ent.color else '"#888888"' }},
+      solid: {{ 'true' if ent.solid else 'false' }},
+      speed: {{ ent.speed or 0 }},
+      ai: {{ ent.ai | tojson if ent.ai else 'null' }},
+      score: {{ ent.score or 0 }},
+      points: {{ ent.points or 0 }},
+      respawn: {{ 'true' if ent.respawn else 'false' }},
+      direction: {{ ent.direction | tojson if ent.direction else 'null' }},
+      on_hit_wall: {{ ent.on_hit_wall | tojson if ent.on_hit_wall else 'null' }},
+      on_hit_entity: {{ ent.on_hit_entity | tojson if ent.on_hit_entity else 'null' }}
+    }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  };
+
+  /* ---- SYMBOL MAP (from symbol_map) ---- */
+  var SYMBOL_MAP = {
+{% for sym, ename in symbol_map.items() %}
+    {{ sym | tojson }}: {{ ename | tojson }}{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  };
+
+  /* ---- LAYOUT ---- */
+  var RAW_LAYOUT = [
+{% for row in layout %}
+    {{ row | tojson }}{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  ];
+
+  /* ---- PLAYER CONFIG ---- */
+  var PLAYER_X = {{ player_spawn.col * cell_size + cell_size // 2 if player_spawn else game.canvas.width // 2 }};
+  var PLAYER_Y = {{ player_spawn.row * cell_size + cell_size // 2 if player_spawn else game.canvas.height // 2 }};
+  var PLAYER_SPEED  = {{ game.player.speed }};
+  var PLAYER_COLOR  = "{{ game.player.color }}";
+  var PLAYER_LIVES  = {{ game.player.lives or 3 }};
+  var PLAYER_SHAPE  = "{{ game.player.shape if game.player.shape else 'circle' }}";
+{% if engine.shooting and game.player.shoot %}
+  var SHOOT_COOLDOWN = {{ game.player.shoot.cooldown or 0.3 }};
+{% else %}
+  var SHOOT_COOLDOWN = 0.3;
+{% endif %}
+
+  var HIGH_SCORE_KEY = 'topdown_hs_{{ game.name | replace(" ", "_") }}';
+  var highScore = parseInt(localStorage.getItem(HIGH_SCORE_KEY) || '0', 10);
+
+  /* ---- SOUNDS (Web Audio API) ---- */
+{% if sounds %}
+{% for snd in sounds %}
+  function playSound_{{ snd.name }}() {
+    try {
+      var actx = new (window.AudioContext || window.webkitAudioContext)();
+{% if snd.sound_type == 'beep' %}
+      var osc = actx.createOscillator();
+      var gain = actx.createGain();
+      osc.connect(gain); gain.connect(actx.destination);
+      osc.type = 'square';
+      osc.frequency.value = {{ snd.frequency or 440 }};
+      gain.gain.setValueAtTime({{ snd.volume or 0.3 }}, actx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + {{ snd.duration or 0.1 }});
+      osc.start(); osc.stop(actx.currentTime + {{ snd.duration or 0.1 }});
+{% elif snd.sound_type == 'sweep_up' %}
+      var osc = actx.createOscillator();
+      var gain = actx.createGain();
+      osc.connect(gain); gain.connect(actx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime({{ snd.frequency or 200 }}, actx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime({{ (snd.frequency * 4) if snd.frequency else 800 }}, actx.currentTime + {{ snd.duration or 0.2 }});
+      gain.gain.setValueAtTime({{ snd.volume or 0.3 }}, actx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + {{ snd.duration or 0.2 }});
+      osc.start(); osc.stop(actx.currentTime + {{ snd.duration or 0.2 }});
+{% elif snd.sound_type == 'sweep_down' %}
+      var osc = actx.createOscillator();
+      var gain = actx.createGain();
+      osc.connect(gain); gain.connect(actx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime({{ (snd.frequency * 4) if snd.frequency else 800 }}, actx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime({{ snd.frequency or 200 }}, actx.currentTime + {{ snd.duration or 0.2 }});
+      gain.gain.setValueAtTime({{ snd.volume or 0.3 }}, actx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + {{ snd.duration or 0.2 }});
+      osc.start(); osc.stop(actx.currentTime + {{ snd.duration or 0.2 }});
+{% elif snd.sound_type == 'explosion' or snd.sound_type == 'noise' %}
+      var bufSize = Math.floor(actx.sampleRate * {{ snd.duration or 0.3 }});
+      var buf = actx.createBuffer(1, bufSize, actx.sampleRate);
+      var data = buf.getChannelData(0);
+      for (var _i = 0; _i < bufSize; _i++) data[_i] = Math.random() * 2 - 1;
+      var src = actx.createBufferSource();
+      src.buffer = buf;
+      var gain = actx.createGain();
+      src.connect(gain); gain.connect(actx.destination);
+      gain.gain.setValueAtTime({{ snd.volume or 0.4 }}, actx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + {{ snd.duration or 0.3 }});
+      src.start(); src.stop(actx.currentTime + {{ snd.duration or 0.3 }});
+{% endif %}
+    } catch(e_) {}
+  }
+{% endfor %}
+{% else %}
+  function playSound_shoot() {}
+  function playSound_die() {}
+  function playSound_kill() {}
+  function playSound_place() {}
+{% endif %}
+
+  /* ---- ANIMATION DEFS ---- */
+{% if animations %}
+  var ANIM_DEFS = {
+{% for anim in animations %}
+    {{ anim.name | tojson }}: { effect: {{ anim.effect | tojson }}, duration: {{ anim.duration or 0.5 }}, color: {{ (anim.color or '#ff6600') | tojson }}, particleCount: {{ anim.particle_count or 8 }} }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  };
+{% else %}
+  var ANIM_DEFS = {};
+{% endif %}
+
+  /* ---- ITEMS ---- */
+  var ITEM_DEFS = [
+{% for it in items %}
+    { name: {{ it.name | tojson }}, symbol: {{ it.symbol | tojson }}, color: {{ it.color | tojson }}, score: {{ it.score or 0 }}, effect: {{ (it.effect or '') | tojson }}, duration: {{ it.duration or 0 }}, dropChance: {{ it.drop_chance or 0 }} }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  ];
+
+{% include '_behavior_dsl.j2' %}
+
+  /* ---- RULE HOOKS ---- */
+  function _ruleHook_loseLife() { lives = Math.max(0, lives - 1); if (lives <= 0) { gameState = STATE_GAMEOVER; } }
+  function _ruleHook_addPoints(pts) { score += (pts || 0); }
+  function _ruleHook_destroyEnemy() { /* handled per-collision loop */ }
+  function _ruleHook_destroyAllEnemies() { enemies = []; }
+  function _ruleHook_nextLevel() { currentWave++; startWave(currentWave); }
+  function _ruleHook_spawn(entity, loc_type) { spawnEnemyByName(entity); }
+
+  /* ---- CANVAS / RUNTIME ---- */
+  var canvas = document.getElementById('gameCanvas');
+  var ctx    = canvas.getContext('2d');
+  var _RT_W  = CANVAS_W;
+  var _RT_H  = CANVAS_H;
+{% include '_runtime.j2' %}
+
+  /* ---- GRID ---- */
+  var ROWS = RAW_LAYOUT.length;
+  var COLS = RAW_LAYOUT[0] ? RAW_LAYOUT[0].length : 1;
+
+  var grid = [];
+
+  function buildGrid() {
+    grid = [];
+    for (var r = 0; r < ROWS; r++) {
+      grid[r] = [];
+      for (var c = 0; c < COLS; c++) {
+        var ch = (RAW_LAYOUT[r] && RAW_LAYOUT[r][c] !== undefined) ? RAW_LAYOUT[r][c] : '.';
+        var eName = SYMBOL_MAP[ch];
+        var eDef  = eName ? ENTITY_DEFS[eName] : null;
+        grid[r][c] = {
+          symbol: ch,
+          solid:  eDef ? eDef.solid : false,
+          color:  eDef ? eDef.color : BG_COLOR
+        };
+      }
+    }
+  }
+
+  function isSolid(col, row) {
+    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return true;
+    return grid[row][col].solid;
+  }
+
+  function cellOf(px, py) {
+    return { col: Math.floor(px / CELL), row: Math.floor(py / CELL) };
+  }
+
+  /* ---- BFS (for AI chase) ---- */
+  function bfs(startCol, startRow, targetCol, targetRow) {
+    if (startCol === targetCol && startRow === targetRow) return { dx: 0, dy: 0 };
+    var visited = {};
+    var queue = [{ col: startCol, row: startRow, path: [] }];
+    visited[startRow + ',' + startCol] = true;
+    var dirs = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
+    while (queue.length > 0) {
+      var cur = queue.shift();
+      for (var d = 0; d < dirs.length; d++) {
+        var nc = cur.col + dirs[d].dx;
+        var nr = cur.row + dirs[d].dy;
+        var key = nr + ',' + nc;
+        if (visited[key]) continue;
+        if (isSolid(nc, nr)) continue;
+        var newPath = cur.path.concat([dirs[d]]);
+        if (nc === targetCol && nr === targetRow) {
+          return newPath[0] || { dx: 0, dy: 0 };
+        }
+        visited[key] = true;
+        queue.push({ col: nc, row: nr, path: newPath });
+      }
+    }
+    var validDirs = [];
+    for (var i = 0; i < dirs.length; i++) {
+      if (!isSolid(startCol + dirs[i].dx, startRow + dirs[i].dy)) validDirs.push(dirs[i]);
+    }
+    return validDirs.length > 0 ? validDirs[Math.floor(Math.random() * validDirs.length)] : { dx: 0, dy: 0 };
+  }
+
+  /* ---- GAME STATE ---- */
+  var STATE_PLAYING    = 'PLAYING';
+  var STATE_GAMEOVER   = 'GAME_OVER';
+  var STATE_WIN        = 'WIN';
+  var STATE_WAVE_CLEAR = 'WAVE_CLEAR';
+  var STATE_PAUSED     = 'PAUSED';
+
+  var player       = {};
+  var enemies      = [];
+  var bullets      = [];
+  var particles    = [];
+  var activeItems  = [];
+  var towers       = [];
+
+  var score        = 0;
+  var lives        = PLAYER_LIVES;
+  var gold         = START_GOLD;
+  var currentWave  = 0;
+  var enemiesRemaining = 0;
+  var waveClearTimer   = 0;
+  var gameState    = STATE_PLAYING;
+  var shootTimer   = 0;
+  var invincTimer  = 0;
+  var gameTime     = 0;
+  var aimDx        = 0;
+  var aimDy        = -1;
+
+  /* ---- COLLECT ENEMY ENTITY DEFS ---- */
+  var ENEMY_DEFS = [];
+  var PROJECTILE_DEF = null;
+  (function() {
+    for (var k in ENTITY_DEFS) {
+      if (ENTITY_DEFS[k].entity_type === 'enemy') ENEMY_DEFS.push(ENTITY_DEFS[k]);
+      if (ENTITY_DEFS[k].entity_type === 'projectile' && !PROJECTILE_DEF) PROJECTILE_DEF = ENTITY_DEFS[k];
+    }
+  })();
+
+  var PROJ_SPEED  = PROJECTILE_DEF ? (PROJECTILE_DEF.speed * CELL) : (15 * CELL);
+  var PROJ_COLOR  = PROJECTILE_DEF ? PROJECTILE_DEF.color : '#fbbf24';
+  var PROJ_HIT_WALL   = PROJECTILE_DEF ? PROJECTILE_DEF.on_hit_wall   : 'destroy';
+  var PROJ_HIT_ENTITY = PROJECTILE_DEF ? PROJECTILE_DEF.on_hit_entity : 'destroy';
+
+  /* ---- COLLECT SPAWN POSITIONS FROM LAYOUT ---- */
+  function findSpawnPositions(spawnSymbol) {
+    var positions = [];
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < COLS; c++) {
+        if (RAW_LAYOUT[r] && RAW_LAYOUT[r][c] === spawnSymbol) {
+          positions.push({ col: c, row: r });
+        }
+      }
+    }
+    return positions;
+  }
+
+  /* ---- PLAYER INIT ---- */
+  function initPlayer() {
+    player = {
+      x:       PLAYER_X,
+      y:       PLAYER_Y,
+      vx:      0,
+      vy:      0,
+      speed:   PLAYER_SPEED * CELL,
+      radius:  CELL * 0.4,
+      alive:   true
+    };
+    aimDx = 0;
+    aimDy = -1;
+  }
+
+  /* ---- ENEMY SPAWNING ---- */
+  function makeEnemy(def, col, row, hp) {
+    return {
+      x:        col * CELL + CELL / 2,
+      y:        row * CELL + CELL / 2,
+      vx:       0,
+      vy:       0,
+      color:    def.color,
+      speed:    (def.speed || 2) * CELL,
+      points:   def.points || 100,
+      ai:       def.ai || 'chase',
+      radius:   CELL * 0.38,
+      alive:    true,
+      hp:       hp || ENEMY_HP,
+      maxHp:    hp || ENEMY_HP,
+      moveTimer: Math.random() * 0.5,
+      patrolDir: { dx: 1, dy: 0 },
+      name:     def.name
+    };
+  }
+
+  function spawnEnemyByName(name) {
+    var def = ENTITY_DEFS[name];
+    if (!def || def.entity_type !== 'enemy') return;
+    var sym = def.spawn_symbol || def.symbol;
+    var positions = sym ? findSpawnPositions(sym) : [];
+    if (positions.length === 0) {
+      positions = [{ col: 1, row: 1 }];
+    }
+    var pos = positions[Math.floor(Math.random() * positions.length)];
+    enemies.push(makeEnemy(def, pos.col, pos.row, ENEMY_HP));
+  }
+
+  function startWave(waveNum) {
+    enemies = [];
+    var hp = Math.max(1, ENEMY_HP + Math.floor((waveNum - 1) * 0.5));
+    var count = ENEMIES_PER_WAVE + (waveNum - 1) * 2;
+
+    if (ENEMY_DEFS.length === 0) return;
+
+    for (var i = 0; i < count; i++) {
+      var def = ENEMY_DEFS[i % ENEMY_DEFS.length];
+      var sym = def.spawn_symbol || def.symbol;
+      var positions = sym ? findSpawnPositions(sym) : [];
+      if (positions.length === 0) positions = [{ col: 1, row: 1 }];
+      var pos = positions[Math.floor(Math.random() * positions.length)];
+      var e = makeEnemy(def, pos.col, pos.row, hp);
+      e.speed = e.speed * (1 + (waveNum - 1) * 0.1);
+      e.points = e.points * waveNum;
+      enemies.push(e);
+    }
+    enemiesRemaining = enemies.length;
+    gameState = STATE_PLAYING;
+  }
+
+  function initEnemies() {
+    if (WAVE_SYSTEM) {
+      currentWave = 1;
+      startWave(currentWave);
+    } else if (AI_ENEMIES) {
+      enemies = [];
+      for (var di = 0; di < ENEMY_DEFS.length; di++) {
+        var def = ENEMY_DEFS[di];
+        var sym = def.spawn_symbol || def.symbol;
+        var positions = sym ? findSpawnPositions(sym) : [];
+        if (positions.length === 0) positions = [{ col: 1, row: 1 }];
+        for (var pi = 0; pi < positions.length; pi++) {
+          enemies.push(makeEnemy(def, positions[pi].col, positions[pi].row, ENEMY_HP));
+        }
+      }
+      enemiesRemaining = enemies.length;
+    }
+  }
+
+  /* ---- PARTICLES ---- */
+  function spawnParticles(x, y, color, count) {
+    var n = count || 8;
+    for (var i = 0; i < n; i++) {
+      var angle = (Math.PI * 2 * i) / n + Math.random() * 0.5;
+      var spd   = CELL * (1.5 + Math.random() * 2);
+      particles.push({
+        x: x, y: y,
+        dx: Math.cos(angle) * spd,
+        dy: Math.sin(angle) * spd,
+        size: CELL * (0.1 + Math.random() * 0.15),
+        color: color,
+        life: 0.4 + Math.random() * 0.3,
+        maxLife: 0.7
+      });
+    }
+  }
+
+  /* ---- ITEMS ---- */
+  function tryDropItem(x, y) {
+    for (var d = 0; d < ITEM_DEFS.length; d++) {
+      var def = ITEM_DEFS[d];
+      if (Math.random() < def.dropChance) {
+        activeItems.push({ x: x, y: y, def: def, life: 8.0 });
+        break;
+      }
+    }
+  }
+
+  function updateItems(dt) {
+    for (var i = activeItems.length - 1; i >= 0; i--) {
+      var it = activeItems[i];
+      it.life -= dt;
+      if (it.life <= 0) { activeItems.splice(i, 1); continue; }
+      var ddx = it.x - player.x;
+      var ddy = it.y - player.y;
+      if (Math.sqrt(ddx * ddx + ddy * ddy) < CELL * 0.7) {
+        if (it.def.score > 0) score += it.def.score;
+        if (it.def.effect === 'extra_life') lives++;
+        if (it.def.effect === 'speed_up') {
+          player.speed = PLAYER_SPEED * CELL * 1.5;
+          setTimeout(function() { player.speed = PLAYER_SPEED * CELL; }, (it.def.duration || 5) * 1000);
+        }
+        if (it.def.effect === 'invincible') {
+          invincTimer = Math.max(invincTimer, it.def.duration || 5);
+        }
+        activeItems.splice(i, 1);
+      }
+    }
+  }
+
+  /* ---- PLAYER MOVEMENT (free pixel-based) ---- */
+  function updatePlayer(dt) {
+    var moveX = 0;
+    var moveY = 0;
+    if (keys['ArrowLeft']  || keys['a'] || keys['A']) { moveX -= 1; aimDx = -1; aimDy = 0; }
+    if (keys['ArrowRight'] || keys['d'] || keys['D']) { moveX += 1; aimDx =  1; aimDy = 0; }
+    if (keys['ArrowUp']    || keys['w'] || keys['W']) { moveY -= 1; aimDx = 0; aimDy = -1; }
+    if (keys['ArrowDown']  || keys['s'] || keys['S']) { moveY += 1; aimDx = 0; aimDy =  1; }
+
+    /* Normalize diagonal */
+    if (moveX !== 0 && moveY !== 0) {
+      moveX *= 0.7071;
+      moveY *= 0.7071;
+    }
+
+    var spd = player.speed * dt;
+    var nx  = player.x + moveX * spd;
+    var ny  = player.y + moveY * spd;
+    var r   = player.radius;
+
+    /* Wall collision — check corners */
+    function blocked(px, py) {
+      var corners = [
+        { x: px - r, y: py - r },
+        { x: px + r, y: py - r },
+        { x: px - r, y: py + r },
+        { x: px + r, y: py + r }
+      ];
+      for (var ci = 0; ci < corners.length; ci++) {
+        var cc = cellOf(corners[ci].x, corners[ci].y);
+        if (isSolid(cc.col, cc.row)) return true;
+      }
+      return false;
+    }
+
+    if (!blocked(nx, player.y)) player.x = nx;
+    if (!blocked(player.x, ny)) player.y = ny;
+
+    player.x = Math.max(r, Math.min(CANVAS_W - r, player.x));
+    player.y = Math.max(r, Math.min(CANVAS_H - r, player.y));
+  }
+
+  /* ---- SHOOTING ---- */
+  function updateShooting(dt) {
+    if (!SHOOTING) return;
+    if (shootTimer > 0) shootTimer -= dt;
+    if ((keys[' '] || keys['Control']) && shootTimer <= 0) {
+      shootTimer = SHOOT_COOLDOWN;
+      var len = Math.sqrt(aimDx * aimDx + aimDy * aimDy);
+      var ndx = len > 0 ? aimDx / len : 0;
+      var ndy = len > 0 ? aimDy / len : -1;
+      bullets.push({
+        x:      player.x + ndx * player.radius,
+        y:      player.y + ndy * player.radius,
+        dx:     ndx,
+        dy:     ndy,
+        speed:  PROJ_SPEED,
+        radius: CELL * 0.15,
+        alive:  true
+      });
+{% if sounds %}{% for snd in sounds %}{% if snd.name == 'shoot' %}
+      playSound_shoot();
+{% endif %}{% endfor %}{% endif %}
+    }
+  }
+
+  function updateBullets(dt) {
+    for (var i = bullets.length - 1; i >= 0; i--) {
+      var b = bullets[i];
+      if (!b.alive) { bullets.splice(i, 1); continue; }
+
+      b.x += b.dx * b.speed * dt;
+      b.y += b.dy * b.speed * dt;
+
+      /* Out of bounds */
+      if (b.x < 0 || b.x > CANVAS_W || b.y < 0 || b.y > CANVAS_H) {
+        bullets.splice(i, 1); continue;
+      }
+
+      /* Wall hit */
+      var bc = cellOf(b.x, b.y);
+      if (isSolid(bc.col, bc.row)) {
+        if (PROJ_HIT_WALL === 'destroy' || PROJ_HIT_WALL === null) {
+          bullets.splice(i, 1);
+        }
+        continue;
+      }
+
+      /* Enemy hit */
+      var hitSomething = false;
+      for (var j = enemies.length - 1; j >= 0; j--) {
+        var e = enemies[j];
+        if (!e.alive) continue;
+        var dist = Math.sqrt((b.x - e.x) * (b.x - e.x) + (b.y - e.y) * (b.y - e.y));
+        if (dist < b.radius + e.radius) {
+          e.hp--;
+          if (e.hp <= 0) {
+            e.alive = false;
+            score += e.points;
+            if (TOWER_MODE) gold += ENEMY_REWARD;
+            var animDef = ANIM_DEFS['enemy_death'] || ANIM_DEFS['explode'] || null;
+            var pColor  = animDef ? animDef.color : e.color;
+            var pCount  = animDef ? animDef.particleCount : 8;
+            spawnParticles(e.x, e.y, pColor, pCount);
+            tryDropItem(e.x, e.y);
+            fireCollisionRule('projectile', 'enemy');
+{% if sounds %}{% for snd in sounds %}{% if snd.name == 'kill' %}
+            playSound_kill();
+{% endif %}{% endfor %}{% endif %}
+          }
+          if (PROJ_HIT_ENTITY === 'destroy_all') {
+            for (var k = 0; k < enemies.length; k++) {
+              if (enemies[k].alive) {
+                score += enemies[k].points;
+                spawnParticles(enemies[k].x, enemies[k].y, pColor || '#ff6600', 6);
+              }
+              enemies[k].alive = false;
+            }
+          }
+          hitSomething = true;
+          break;
+        }
+      }
+      if (hitSomething) {
+        bullets.splice(i, 1);
+        checkWaveComplete();
+        continue;
+      }
+
+      /* Tower bullet hits enemy (tower bullets stored separately — skip here) */
+    }
+  }
+
+  /* ---- ENEMY AI ---- */
+  function enemyAI(e, dt) {
+    var ec = cellOf(e.x, e.y);
+    var pc = cellOf(player.x, player.y);
+    var dir = { dx: 0, dy: 0 };
+
+    var aiType = e.ai || 'chase';
+
+    if (aiType === 'chase') {
+      dir = bfs(ec.col, ec.row, pc.col, pc.row);
+    } else if (aiType === 'ambush') {
+      var tCol = Math.max(0, Math.min(COLS - 1, pc.col + Math.round(aimDx * 4)));
+      var tRow = Math.max(0, Math.min(ROWS - 1, pc.row + Math.round(aimDy * 4)));
+      dir = bfs(ec.col, ec.row, tCol, tRow);
+    } else if (aiType === 'patrol') {
+      var nc = ec.col + e.patrolDir.dx;
+      var nr = ec.row + e.patrolDir.dy;
+      if (isSolid(nc, nr)) {
+        e.patrolDir.dx = -e.patrolDir.dx;
+        e.patrolDir.dy = -e.patrolDir.dy;
+      }
+      dir = e.patrolDir;
+    } else if (aiType === 'random') {
+      e.moveTimer -= dt;
+      if (e.moveTimer <= 0) {
+        e.moveTimer = 0.4 + Math.random() * 0.6;
+        var dirs = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
+        var valid = [];
+        for (var d = 0; d < dirs.length; d++) {
+          if (!isSolid(ec.col + dirs[d].dx, ec.row + dirs[d].dy)) valid.push(dirs[d]);
+        }
+        if (valid.length > 0) e.patrolDir = valid[Math.floor(Math.random() * valid.length)];
+      }
+      dir = e.patrolDir;
+    } else if (aiType === 'flanker') {
+      /* Flanking: try to get to the side of the player */
+      var perpDx = -aimDy;
+      var perpDy =  aimDx;
+      var side = (Math.random() < 0.5) ? 1 : -1;
+      var tCol2 = Math.max(0, Math.min(COLS - 1, pc.col + Math.round(perpDx * side * 3)));
+      var tRow2 = Math.max(0, Math.min(ROWS - 1, pc.row + Math.round(perpDy * side * 3)));
+      dir = bfs(ec.col, ec.row, tCol2, tRow2);
+    } else {
+      dir = bfs(ec.col, ec.row, pc.col, pc.row);
+    }
+
+    return dir;
+  }
+
+  function updateEnemies(dt) {
+    if (!AI_ENEMIES && !WAVE_SYSTEM) return;
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[i];
+      if (!e.alive) continue;
+
+      var dir = enemyAI(e, dt);
+      var spd = e.speed * dt;
+
+      /* Free pixel movement with wall avoidance */
+      var nx = e.x + dir.dx * spd;
+      var ny = e.y + dir.dy * spd;
+      var er = e.radius;
+
+      function eBlocked(px, py) {
+        var corners = [
+          { x: px - er, y: py - er }, { x: px + er, y: py - er },
+          { x: px - er, y: py + er }, { x: px + er, y: py + er }
+        ];
+        for (var ci = 0; ci < corners.length; ci++) {
+          var cc = cellOf(corners[ci].x, corners[ci].y);
+          if (isSolid(cc.col, cc.row)) return true;
+        }
+        return false;
+      }
+
+      if (!eBlocked(nx, e.y)) e.x = nx;
+      if (!eBlocked(e.x, ny)) e.y = ny;
+
+      e.x = Math.max(er, Math.min(CANVAS_W - er, e.x));
+      e.y = Math.max(er, Math.min(CANVAS_H - er, e.y));
+
+      /* Player collision */
+      if (invincTimer <= 0) {
+        var pdist = Math.sqrt((e.x - player.x) * (e.x - player.x) + (e.y - player.y) * (e.y - player.y));
+        if (pdist < e.radius + player.radius) {
+          lives--;
+          invincTimer = 1.5;
+          fireCollisionRule('player', 'enemy');
+{% if sounds %}{% for snd in sounds %}{% if snd.name == 'die' %}
+          playSound_die();
+{% endif %}{% endfor %}{% endif %}
+          if (lives <= 0) {
+            gameState = STATE_GAMEOVER;
+            return;
+          }
+          initPlayer();
+        }
+      }
+    }
+  }
+
+  /* ---- WAVE SYSTEM ---- */
+  function checkWaveComplete() {
+    if (!WAVE_SYSTEM && !AI_ENEMIES) return;
+    var anyAlive = false;
+    for (var i = 0; i < enemies.length; i++) {
+      if (enemies[i].alive) { anyAlive = true; break; }
+    }
+    if (!anyAlive) {
+      if (WAVE_SYSTEM && currentWave >= WAVE_COUNT) {
+        gameState = STATE_WIN;
+      } else {
+        waveClearTimer = 2.5;
+        gameState = STATE_WAVE_CLEAR;
+      }
+    }
+  }
+
+  /* ---- TOWER DEFENSE ---- */
+{% if engine.tower_placement %}
+  var TOWER_COST  = 50;
+  var TOWER_RANGE = CELL * 4;
+  var TOWER_RATE  = 1.0;
+  var towerBullets = [];
+
+  canvas.addEventListener('click', function(evt) {
+    if (!TOWER_MODE) return;
+    if (gameState !== STATE_PLAYING) return;
+    var rect = canvas.getBoundingClientRect();
+    var mx = evt.clientX - rect.left;
+    var my = evt.clientY - rect.top;
+    var tc = Math.floor(mx / CELL);
+    var tr = Math.floor(my / CELL);
+    if (isSolid(tc, tr)) return;
+    if (gold < TOWER_COST) return;
+    /* Don't place on player */
+    var pc = cellOf(player.x, player.y);
+    if (tc === pc.col && tr === pc.row) return;
+    /* Don't stack towers */
+    for (var ti = 0; ti < towers.length; ti++) {
+      if (towers[ti].col === tc && towers[ti].row === tr) return;
+    }
+    gold -= TOWER_COST;
+    towers.push({ col: tc, row: tr, x: tc * CELL + CELL / 2, y: tr * CELL + CELL / 2, shootTimer: 0 });
+{% if sounds %}{% for snd in sounds %}{% if snd.name == 'place' %}
+    playSound_place();
+{% endif %}{% endfor %}{% endif %}
+  });
+
+  function updateTowers(dt) {
+    if (!TOWER_MODE) return;
+    for (var ti = 0; ti < towers.length; ti++) {
+      var t = towers[ti];
+      t.shootTimer -= dt;
+      if (t.shootTimer > 0) continue;
+      /* Find nearest enemy in range */
+      var nearest = null;
+      var nearDist = Infinity;
+      for (var ei = 0; ei < enemies.length; ei++) {
+        var e = enemies[ei];
+        if (!e.alive) continue;
+        var dist = Math.sqrt((e.x - t.x) * (e.x - t.x) + (e.y - t.y) * (e.y - t.y));
+        if (dist < TOWER_RANGE && dist < nearDist) {
+          nearDist = dist;
+          nearest = e;
+        }
+      }
+      if (nearest) {
+        t.shootTimer = TOWER_RATE;
+        var tdx = nearest.x - t.x;
+        var tdy = nearest.y - t.y;
+        var tlen = Math.sqrt(tdx * tdx + tdy * tdy);
+        towerBullets.push({
+          x: t.x, y: t.y,
+          dx: tdx / tlen, dy: tdy / tlen,
+          speed: PROJ_SPEED,
+          radius: CELL * 0.12,
+          alive: true
+        });
+      }
+    }
+    /* Update tower bullets */
+    for (var bi = towerBullets.length - 1; bi >= 0; bi--) {
+      var b = towerBullets[bi];
+      if (!b.alive) { towerBullets.splice(bi, 1); continue; }
+      b.x += b.dx * b.speed * dt;
+      b.y += b.dy * b.speed * dt;
+      if (b.x < 0 || b.x > CANVAS_W || b.y < 0 || b.y > CANVAS_H) {
+        towerBullets.splice(bi, 1); continue;
+      }
+      var bbc = cellOf(b.x, b.y);
+      if (isSolid(bbc.col, bbc.row)) { towerBullets.splice(bi, 1); continue; }
+      var hit = false;
+      for (var ej = enemies.length - 1; ej >= 0; ej--) {
+        var te = enemies[ej];
+        if (!te.alive) continue;
+        var tdist = Math.sqrt((b.x - te.x) * (b.x - te.x) + (b.y - te.y) * (b.y - te.y));
+        if (tdist < b.radius + te.radius) {
+          te.hp--;
+          if (te.hp <= 0) {
+            te.alive = false;
+            score += te.points;
+            gold += ENEMY_REWARD;
+            spawnParticles(te.x, te.y, te.color, 8);
+            tryDropItem(te.x, te.y);
+          }
+          hit = true;
+          break;
+        }
+      }
+      if (hit) { towerBullets.splice(bi, 1); checkWaveComplete(); }
+    }
+  }
+{% else %}
+  var towerBullets = [];
+  function updateTowers(dt) {}
+{% endif %}
+
+  /* ---- PARTICLES ---- */
+  function updateParticles(dt) {
+    for (var i = particles.length - 1; i >= 0; i--) {
+      var p = particles[i];
+      p.x += p.dx * dt;
+      p.y += p.dy * dt;
+      p.dx *= 0.88;
+      p.dy *= 0.88;
+      p.life -= dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+  }
+
+  /* ---- DRAW FUNCTIONS ---- */
+  function drawTiles() {
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < COLS; c++) {
+        var cell = grid[r][c];
+        var px = c * CELL;
+        var py = r * CELL;
+        ctx.fillStyle = cell.solid ? cell.color : BG_COLOR;
+        ctx.fillRect(px, py, CELL, CELL);
+        if (cell.solid) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(px, py, CELL, CELL);
+        }
+      }
+    }
+  }
+
+  function drawPlayer() {
+    if (invincTimer > 0 && Math.floor(gameTime * 8) % 2 === 0) return;
+    ctx.save();
+    ctx.shadowColor = PLAYER_COLOR;
+    ctx.shadowBlur  = 14;
+    ctx.fillStyle   = PLAYER_COLOR;
+    if (PLAYER_SHAPE === 'square') {
+      var s = player.radius * 1.6;
+      ctx.fillRect(player.x - s / 2, player.y - s / 2, s, s);
+    } else {
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    /* Aim indicator */
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth   = 2;
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(player.x + aimDx * player.radius * 1.8, player.y + aimDy * player.radius * 1.8);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawEnemies() {
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[i];
+      if (!e.alive) continue;
+      ctx.save();
+      ctx.shadowColor = e.color;
+      ctx.shadowBlur  = 10;
+      ctx.fillStyle   = e.color;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      /* Eyes */
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(e.x - e.radius * 0.3, e.y - e.radius * 0.2, e.radius * 0.22, 0, Math.PI * 2);
+      ctx.arc(e.x + e.radius * 0.3, e.y - e.radius * 0.2, e.radius * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(e.x - e.radius * 0.3, e.y - e.radius * 0.2, e.radius * 0.1, 0, Math.PI * 2);
+      ctx.arc(e.x + e.radius * 0.3, e.y - e.radius * 0.2, e.radius * 0.1, 0, Math.PI * 2);
+      ctx.fill();
+      /* HP bar */
+      if (e.maxHp > 1) {
+        var bw = e.radius * 2;
+        var bh = 4;
+        var bx = e.x - e.radius;
+        var by = e.y - e.radius - 8;
+        ctx.fillStyle = '#333';
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.fillStyle = '#ff4444';
+        ctx.fillRect(bx, by, bw * (e.hp / e.maxHp), bh);
+      }
+    }
+  }
+
+  function drawBullets() {
+    ctx.save();
+    ctx.shadowColor = PROJ_COLOR;
+    ctx.shadowBlur  = 14;
+    ctx.fillStyle   = PROJ_COLOR;
+    for (var i = 0; i < bullets.length; i++) {
+      var b = bullets[i];
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    /* Tower bullets */
+    ctx.shadowColor = '#a78bfa';
+    ctx.fillStyle   = '#a78bfa';
+    for (var j = 0; j < towerBullets.length; j++) {
+      var tb = towerBullets[j];
+      ctx.beginPath();
+      ctx.arc(tb.x, tb.y, tb.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawParticles() {
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      var alpha = Math.max(0, p.life / p.maxLife);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle   = p.color;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawItems() {
+    for (var i = 0; i < activeItems.length; i++) {
+      var it = activeItems[i];
+      var alpha = Math.min(1, it.life / 2);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle   = it.def.color;
+      ctx.font        = 'bold ' + Math.round(CELL * 0.7) + 'px monospace';
+      ctx.textAlign   = 'center';
+      ctx.fillText(it.def.symbol, it.x, it.y + CELL * 0.25);
+      ctx.textAlign   = 'left';
+      ctx.globalAlpha = 1;
+    }
+  }
+
+{% if engine.tower_placement %}
+  function drawTowers() {
+    for (var i = 0; i < towers.length; i++) {
+      var t = towers[i];
+      ctx.save();
+      ctx.shadowColor = '#a78bfa';
+      ctx.shadowBlur  = 12;
+      ctx.fillStyle   = '#7c3aed';
+      var ts = CELL * 0.7;
+      ctx.fillRect(t.x - ts / 2, t.y - ts / 2, ts, ts);
+      ctx.strokeStyle = '#a78bfa';
+      ctx.lineWidth   = 2;
+      ctx.strokeRect(t.x - ts / 2, t.y - ts / 2, ts, ts);
+      /* Range ring (faint) */
+      ctx.globalAlpha = 0.08;
+      ctx.fillStyle   = '#a78bfa';
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, TOWER_RANGE, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+  }
+{% else %}
+  function drawTowers() {}
+{% endif %}
+
+  function _hudPanel(x, y, w, h) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.roundRect(x, y, w, h, 4);
+    ctx.fill();
+    ctx.restore();
+  }
+  function drawUI() {
+    var margin = 7;
+
+    /* Score panel — top right */
+    ctx.font = 'bold 13px Courier New';
+    var scoreText = 'SCORE  ' + score;
+    var sw = ctx.measureText(scoreText).width;
+    var sx = CANVAS_W - margin - sw - 14;
+    _hudPanel(sx, margin, sw + 14, 34);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText(scoreText, sx + 7, margin + 14);
+    ctx.font = '10px Courier New';
+    ctx.fillStyle = '#f59e0b';
+    var hiText = 'BEST  ' + highScore;
+    ctx.fillText(hiText, sx + 7, margin + 27);
+
+    /* Lives panel — top left, hearts */
+    var hearts = '';
+    for (var _h = 0; _h < lives; _h++) hearts += '\u2665 ';
+    for (var _h2 = lives; _h2 < PLAYER_LIVES; _h2++) hearts += '\u2661 ';
+    hearts = hearts.trim() || '\u2661';
+    ctx.font = 'bold 13px Courier New';
+    var lw = ctx.measureText(hearts).width;
+    _hudPanel(margin, margin, lw + 14, 24);
+    ctx.fillStyle = '#f87171';
+    ctx.fillText(hearts, margin + 7, margin + 14);
+
+    /* Wave info — top center */
+    var waveLabel = WAVE_SYSTEM ? ('WAVE ' + currentWave + '/' + WAVE_COUNT) : 'WAVE ' + currentWave;
+    var aliveCount = 0;
+    for (var i = 0; i < enemies.length; i++) { if (enemies[i].alive) aliveCount++; }
+    var waveText = waveLabel + '  ENEMIES: ' + aliveCount;
+    ctx.font      = '12px Courier New';
+    ctx.fillStyle = '#aaa';
+    var ww = ctx.measureText(waveText).width;
+    ctx.fillText(waveText, (CANVAS_W - ww) / 2, margin + 16);
+
+{% if engine.tower_placement %}
+    /* Gold — bottom left */
+    ctx.font      = 'bold 13px Courier New';
+    ctx.fillStyle = '#facc15';
+    ctx.fillText('GOLD: ' + gold + '  (click to place tower: ' + TOWER_COST + 'g)', margin, CANVAS_H - margin - 4);
+{% endif %}
+  }
+
+  /* ---- MAIN DRAW ---- */
+  function draw() {
+    ctx.fillStyle = BG_COLOR;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    drawTiles();
+    drawTowers();
+    drawBullets();
+    drawParticles();
+    drawItems();
+    drawEnemies();
+    drawPlayer();
+    drawUI();
+
+    if (gameState === STATE_GAMEOVER) {
+      drawOverlay('GAME OVER', 'Score: ' + score + '  |  Press Enter to restart', '#ef4444');
+    } else if (gameState === STATE_WIN) {
+      drawOverlay('YOU WIN!', 'Score: ' + score + '  |  Press Enter to restart', '#22c55e');
+    } else if (gameState === STATE_WAVE_CLEAR) {
+      var flashAlpha = 0.35 + 0.15 * Math.sin(gameTime * 6);
+      ctx.fillStyle = 'rgba(34,197,94,' + flashAlpha + ')';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.textAlign = 'center';
+      ctx.font      = 'bold 32px Courier New';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText('WAVE ' + currentWave + ' CLEARED!', CANVAS_W / 2, CANVAS_H / 2 - 16);
+      ctx.font      = '18px Courier New';
+      ctx.fillStyle = '#aaffaa';
+      var nextMsg = (WAVE_SYSTEM && currentWave >= WAVE_COUNT) ? 'Final wave cleared!' : 'Wave ' + (currentWave + 1) + ' incoming...';
+      ctx.fillText(nextMsg, CANVAS_W / 2, CANVAS_H / 2 + 16);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  /* ---- GAME LOOP ---- */
+  var lastTime = null;
+
+  function gameLoop(timestamp) {
+    if (lastTime === null) lastTime = timestamp;
+    var dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+    lastTime = timestamp;
+    gameTime += dt;
+
+    if (gameState === STATE_PLAYING) {
+      if (invincTimer > 0) invincTimer -= dt;
+      updatePlayer(dt);
+      updateShooting(dt);
+      updateBullets(dt);
+      updateEnemies(dt);
+      updateTowers(dt);
+      updateItems(dt);
+      updateParticles(dt);
+      updateRuleTimers(dt);
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem(HIGH_SCORE_KEY, highScore);
+      }
+    } else if (gameState === STATE_WAVE_CLEAR) {
+      updateParticles(dt);
+      waveClearTimer -= dt;
+      if (waveClearTimer <= 0) {
+        currentWave++;
+        bullets = [];
+        towerBullets = [];
+        initPlayer();
+        if (WAVE_SYSTEM) {
+          startWave(currentWave);
+        } else {
+          initEnemies();
+          gameState = STATE_PLAYING;
+        }
+      }
+    }
+
+    draw();
+    requestAnimationFrame(gameLoop);
+  }
+
+  /* ---- KEYBOARD: restart ---- */
+  document.addEventListener('keydown', function(e) {
+    keys[e.key] = true;
+    if ((gameState === STATE_GAMEOVER || gameState === STATE_WIN) &&
+        (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      restartGame();
+      return;
+    }
+    if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+        e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+    }
+  });
+
+  /* ---- RESTART ---- */
+  function restartGame() {
+    score        = 0;
+    lives        = PLAYER_LIVES;
+    gold         = START_GOLD;
+    currentWave  = 0;
+    gameState    = STATE_PLAYING;
+    shootTimer   = 0;
+    invincTimer  = 0;
+    gameTime     = 0;
+    bullets      = [];
+    towerBullets = [];
+    particles    = [];
+    activeItems  = [];
+    towers       = [];
+    waveClearTimer = 0;
+    buildGrid();
+    initPlayer();
+    initEnemies();
+  }
+
+  /* ---- BOOT ---- */
+  buildGrid();
+  initPlayer();
+  initEnemies();
+  requestAnimationFrame(gameLoop);
+
+})();
+</script>
+</body>
+</html>

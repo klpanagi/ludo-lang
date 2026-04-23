@@ -1,5 +1,5 @@
-game "Space Invaders" {
-    canvas: 600x400
+game "Galaga" {
+    canvas: 600x500
     fps: 60
     background: "#000011"
 }
@@ -16,18 +16,26 @@ entities {
         symbol: "#"
         color: "#1e293b"
     }
-    entity invader {
+    entity boss {
         type: enemy
-        spawn: "I"
-        color: "#a855f7"
-        speed: 1.0
+        spawn: "B"
+        color: "#f97316"
+        speed: 1.5
+        ai: formation
+        points: 50
+    }
+    entity fighter {
+        type: enemy
+        spawn: "F"
+        color: "#22d3ee"
+        speed: 1.5
         ai: formation
         points: 10
     }
     entity bullet {
         type: projectile
         color: "#fbbf24"
-        speed: 18
+        speed: 20
         direction: from_player
         on_hit_wall: destroy
         on_hit_entity: destroy
@@ -35,7 +43,7 @@ entities {
     entity enemy_bullet {
         type: projectile
         color: "#f87171"
-        speed: 8
+        speed: 10
         direction: down
         on_hit_wall: destroy
         on_hit_entity: destroy
@@ -43,14 +51,18 @@ entities {
 }
 
 map {
-    cell_size: 20
     layout: [
         "##############################",
         "#                            #",
-        "# I I I I I I I I I I I I I #",
-        "# I I I I I I I I I I I I I #",
-        "# I I I I I I I I I I I I I #",
-        "# I I I I I I I I I I I I I #",
+        "# B B B B B B B B B B B B B #",
+        "#                            #",
+        "# F F F F F F F F F F F F F #",
+        "# F F F F F F F F F F F F F #",
+        "# F F F F F F F F F F F F F #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
+        "#                            #",
         "#                            #",
         "#                            #",
         "#                            #",
@@ -69,14 +81,14 @@ map {
 }
 
 player {
-    name: "Commander"
-    start: (15, 19)
+    name: "Star Fighter"
+    start: (15, 24)
     color: "#60a5fa"
-    speed: 6
+    speed: 7
     lives: 3
     shoot {
         projectile: bullet
-        cooldown: 0.3
+        cooldown: 0.25
         key: space
     }
 }
@@ -84,8 +96,10 @@ player {
 rules {
     win: all_enemies_defeated
     lose: lives_depleted
-    on_collision bullet invader: destroy, add_points
-    on_collision player invader: lose_life
+    on_collision bullet boss: destroy, add_points
+    on_collision bullet fighter: destroy, add_points
+    on_collision player boss: lose_life
+    on_collision player fighter: lose_life
     on_collision enemy_bullet player: lose_life
 }
 
