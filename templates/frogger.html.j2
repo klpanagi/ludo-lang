@@ -1,3 +1,4 @@
+{% set OVERLAY_COLOR = '#00dd00' %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -105,6 +106,9 @@
   var hopAnim = 0; // hop animation timer
 
 {% include '_behavior_dsl.j2' %}
+  var _RT_W = CANVAS_W;
+  var _RT_H = CANVAS_H;
+{% include '_runtime.j2' %}
   function _ruleHook_loseLife()           { lives = Math.max(0, lives - 1); if (lives <= 0) { gameState = STATE_GAMEOVER; } }
   function _ruleHook_addPoints(pts)       { score += pts; }
   function _ruleHook_destroyEnemy()       { /* no enemies */ }
@@ -147,7 +151,6 @@
     }
   }
 
-  var keys = {};
   var keyHandled = {};
   document.addEventListener('keydown', function(e) {
     if (!keys[e.key]) {
@@ -165,7 +168,6 @@
     }
   });
   document.addEventListener('keyup', function(e) {
-    keys[e.key] = false;
     keyHandled[e.key] = false;
   });
 
@@ -517,19 +519,6 @@
         ctx.textAlign = 'left';
       }
     }
-  }
-
-  function drawOverlay(title, subtitle, titleColor) {
-    ctx.fillStyle = 'rgba(0,0,0,0.75)';
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 38px Courier New';
-    ctx.fillStyle = titleColor || '#00dd00';
-    ctx.fillText(title, CANVAS_W / 2, CANVAS_H / 2 - 24);
-    ctx.font = '16px Courier New';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(subtitle, CANVAS_W / 2, CANVAS_H / 2 + 20);
-    ctx.textAlign = 'left';
   }
 
   function draw() {

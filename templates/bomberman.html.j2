@@ -1,3 +1,4 @@
+{% set OVERLAY_COLOR = '#fbbf24' %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -155,6 +156,9 @@
   var invincTimer = 0;
 
 {% include '_behavior_dsl.j2' %}
+  var _RT_W = CANVAS_W;
+  var _RT_H = CANVAS_H;
+{% include '_runtime.j2' %}
   function _ruleHook_loseLife()           { lives = Math.max(0, lives - 1); if (lives <= 0) { gameState = STATE_GAMEOVER; } }
   function _ruleHook_addPoints(pts)       { score += pts; }
   function _ruleHook_destroyEnemy()       { /* handled per-explosion */ }
@@ -198,7 +202,6 @@
     }
   }
 
-  var keys = {};
   document.addEventListener('keydown', function(e) {
     keys[e.key] = true;
     if ((gameState === STATE_GAMEOVER || gameState === STATE_WIN) &&
@@ -220,7 +223,6 @@
     }
     if (e.key === ' ') e.preventDefault();
   });
-  document.addEventListener('keyup', function(e) { keys[e.key] = false; });
 
   function updatePlayer(dt) {
     var pxStep = player.speed * dt;
@@ -641,19 +643,6 @@
       ctx.fill();
       ctx.restore();
     }
-  }
-
-  function drawOverlay(title, subtitle, titleColor) {
-    ctx.fillStyle = 'rgba(0,0,0,0.75)';
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 38px Courier New';
-    ctx.fillStyle = titleColor || '#fbbf24';
-    ctx.fillText(title, CANVAS_W / 2, CANVAS_H / 2 - 24);
-    ctx.font = '16px Courier New';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(subtitle, CANVAS_W / 2, CANVAS_H / 2 + 20);
-    ctx.textAlign = 'left';
   }
 
   function drawUI() {

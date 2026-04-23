@@ -1,0 +1,36 @@
+  // ---- RUNTIME HELPERS (shared across all game templates) ----
+
+  // ctx.roundRect polyfill for older browsers
+  if (!ctx.roundRect) {
+    ctx.roundRect = function(x, y, w, h, r) {
+      this.beginPath();
+      this.moveTo(x + r, y);
+      this.lineTo(x + w - r, y);
+      this.quadraticCurveTo(x + w, y, x + w, y + r);
+      this.lineTo(x + w, y + h - r);
+      this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      this.lineTo(x + r, y + h);
+      this.quadraticCurveTo(x, y + h, x, y + h - r);
+      this.lineTo(x, y + r);
+      this.quadraticCurveTo(x, y, x + r, y);
+      this.closePath();
+    };
+  }
+
+  // Shared key state and keyup listener
+  var keys = {};
+  document.addEventListener('keyup', function(e) { keys[e.key] = false; });
+
+  // Shared overlay function — uses _RT_W / _RT_H set by each template
+  function drawOverlay(title, subtitle, titleColor) {
+    ctx.fillStyle = 'rgba(0,0,0,0.72)';
+    ctx.fillRect(0, 0, _RT_W, _RT_H);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 36px Courier New';
+    ctx.fillStyle = titleColor || '{{ OVERLAY_COLOR | default("#60a5fa") }}';
+    ctx.fillText(title, _RT_W / 2, _RT_H / 2 - 20);
+    ctx.font = '18px Courier New';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(subtitle, _RT_W / 2, _RT_H / 2 + 20);
+    ctx.textAlign = 'left';
+  }

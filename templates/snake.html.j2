@@ -1,3 +1,4 @@
+{% set OVERLAY_COLOR = '#00cc00' %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -493,19 +494,6 @@
     ctx.fillText(speedText, CANVAS_W - 8 - ctx.measureText(speedText).width, 20);
   }
 
-  function drawOverlay(title, subtitle) {
-    ctx.fillStyle = 'rgba(0,0,0,0.65)';
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 36px Courier New';
-    ctx.fillStyle = '#00cc00';
-    ctx.fillText(title, CANVAS_W / 2, CANVAS_H / 2 - 20);
-    ctx.font = '18px Courier New';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(subtitle, CANVAS_W / 2, CANVAS_H / 2 + 20);
-    ctx.textAlign = 'left';
-  }
-
   function draw() {
     ctx.fillStyle = BG_COLOR;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
@@ -570,22 +558,9 @@
   var canvas = document.getElementById('gameCanvas');
   var ctx    = canvas.getContext('2d');
 
-  if (!ctx.roundRect) {
-    ctx.roundRect = function(x, y, w, h, r) {
-      this.beginPath();
-      this.moveTo(x + r, y);
-      this.lineTo(x + w - r, y);
-      this.quadraticCurveTo(x + w, y, x + w, y + r);
-      this.lineTo(x + w, y + h - r);
-      this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-      this.lineTo(x + r, y + h);
-      this.quadraticCurveTo(x, y + h, x, y + h - r);
-      this.lineTo(x, y + r);
-      this.quadraticCurveTo(x, y, x + r, y);
-      this.closePath();
-    };
-  }
-
+  var _RT_W = CANVAS_W;
+  var _RT_H = CANVAS_H;
+{% include '_runtime.j2' %}
   var lastTime = null;
 
   function gameLoop(timestamp) {

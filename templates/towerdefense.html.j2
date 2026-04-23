@@ -1,3 +1,4 @@
+{% set OVERLAY_COLOR = '#60a5fa' %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -508,6 +509,9 @@
   // ---- Drawing ----
   var ctx = canvas.getContext('2d');
 
+  var _RT_W = CW;
+  var _RT_H = CH;
+{% include '_runtime.j2' %}
   function drawGrid() {
     // Background
     ctx.fillStyle = GROUND_COLOR;
@@ -685,22 +689,6 @@
     ctx.arc(c * CELL + CELL/2, r * CELL + CELL/2, def.range * CELL, 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]);
-  }
-
-  function drawOverlay(title, sub, color) {
-    ctx.fillStyle = 'rgba(0,0,0,0.78)';
-    ctx.fillRect(0, 0, CW, CH);
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 40px Courier New';
-    ctx.fillStyle = color;
-    ctx.fillText(title, CW/2, CH/2 - 24);
-    ctx.font = '16px Courier New';
-    ctx.fillStyle = '#fff';
-    ctx.fillText(sub, CW/2, CH/2 + 16);
-    ctx.font = '13px Courier New';
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText('Click to restart', CW/2, CH/2 + 44);
-    ctx.textAlign = 'left';
   }
 
   var lastTime = null;

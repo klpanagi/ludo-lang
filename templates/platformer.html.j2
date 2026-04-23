@@ -1,3 +1,4 @@
+{% set OVERLAY_COLOR = '#60a5fa' %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -65,6 +66,9 @@
   var invincTimer;
 
 {% include '_behavior_dsl.j2' %}
+  var _RT_W = CW;
+  var _RT_H = CH;
+{% include '_runtime.j2' %}
   function _ruleHook_loseLife()           { lives = Math.max(0, lives - 1); if (lives <= 0) { gameState = 'gameover'; } }
   function _ruleHook_addPoints(pts)       { score += pts; }
   function _ruleHook_destroyEnemy()       { /* handled per collision */ }
@@ -152,7 +156,6 @@
     generateWorld();
   }
 
-  var keys = {};
   document.addEventListener('keydown', function(e) {
     keys[e.key] = true;
     if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].indexOf(e.key) !== -1) e.preventDefault();
@@ -160,7 +163,6 @@
       initGame();
     }
   });
-  document.addEventListener('keyup', function(e) { keys[e.key] = false; });
 
   function rectOverlap(ax,ay,aw,ah, bx,by,bw,bh) {
     return ax < bx+bw && ax+aw > bx && ay < by+bh && ay+ah > by;
@@ -505,19 +507,6 @@
     ctx.font = '9px Courier New';
     ctx.fillStyle = '#94a3b8';
     ctx.fillText('PROGRESS', CW - 120, 34);
-  }
-
-  function drawOverlay(title, sub, color) {
-    ctx.fillStyle = 'rgba(0,0,0,0.72)';
-    ctx.fillRect(0, 0, CW, CH);
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 40px Courier New';
-    ctx.fillStyle = color;
-    ctx.fillText(title, CW / 2, CH / 2 - 24);
-    ctx.font = '18px Courier New';
-    ctx.fillStyle = '#fff';
-    ctx.fillText(sub, CW / 2, CH / 2 + 16);
-    ctx.textAlign = 'left';
   }
 
   var gameTime = 0;

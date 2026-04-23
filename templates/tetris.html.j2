@@ -1,3 +1,4 @@
+{% set OVERLAY_COLOR = '#00f5ff' %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -155,6 +156,10 @@
   var nextCanvas = document.getElementById('nextCanvas');
   var nctx      = nextCanvas.getContext('2d');
 
+  var _RT_W = COLS * CELL;
+  var _RT_H = ROWS * CELL;
+{% include '_runtime.j2' %}
+
   var scoreEl = document.getElementById('scoreVal');
   var levelEl = document.getElementById('levelVal');
   var linesEl = document.getElementById('linesVal');
@@ -260,7 +265,6 @@
     linesEl.textContent = 0;
   }
 
-  var keys = {};
   var keyRepeat = {};
   var KEY_REPEAT_DELAY = 0.15;
   var KEY_REPEAT_RATE  = 0.05;
@@ -465,19 +469,6 @@
       var r = blocks[i][0], c = blocks[i][1];
       drawCell(nctx, startX + c * cs, startY + r * cs, cs, color, false);
     }
-  }
-
-  function drawOverlay(title, sub, color) {
-    ctx.fillStyle = 'rgba(0,0,0,0.78)';
-    ctx.fillRect(0, 0, COLS * CELL, ROWS * CELL);
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 32px Courier New';
-    ctx.fillStyle = color || '#00f5ff';
-    ctx.fillText(title, COLS * CELL / 2, ROWS * CELL / 2 - 20);
-    ctx.font = '14px Courier New';
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText(sub, COLS * CELL / 2, ROWS * CELL / 2 + 14);
-    ctx.textAlign = 'left';
   }
 
   function draw() {

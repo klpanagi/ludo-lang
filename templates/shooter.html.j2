@@ -1,3 +1,4 @@
+{% set OVERLAY_COLOR = '#60a5fa' %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -166,6 +167,9 @@
   var canvas = document.getElementById('gameCanvas');
   var ctx    = canvas.getContext('2d');
 
+  var _RT_W = CANVAS_W;
+  var _RT_H = CANVAS_H;
+{% include '_runtime.j2' %}
   var ROWS = RAW_LAYOUT.length;
   var COLS = RAW_LAYOUT[0].length;
 
@@ -418,7 +422,6 @@
     return bfs(ec.col, ec.row, targetCol, targetRow);
   }
 
-  var keys = {};
   document.addEventListener('keydown', function(e) {
     keys[e.key] = true;
     if ((gameState === STATE_GAMEOVER || gameState === STATE_WIN) &&
@@ -440,7 +443,6 @@
     }
     if (e.key === ' ') e.preventDefault();
   });
-  document.addEventListener('keyup', function(e) { keys[e.key] = false; });
 
   function updatePlayer(dt) {
     var pxStep = player.speed * dt;
@@ -750,19 +752,6 @@
     ctx.font = '12px Courier New';
     var ep = uiPos('top_center', ctx.measureText(waveText).width, 18, 0);
     ctx.fillText(waveText, ep.x, ep.y);
-  }
-
-  function drawOverlay(title, subtitle, titleColor) {
-    ctx.fillStyle = 'rgba(0,0,0,0.72)';
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 40px Courier New';
-    ctx.fillStyle = titleColor || '#60a5fa';
-    ctx.fillText(title, CANVAS_W / 2, CANVAS_H / 2 - 24);
-    ctx.font = '18px Courier New';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(subtitle, CANVAS_W / 2, CANVAS_H / 2 + 20);
-    ctx.textAlign = 'left';
   }
 
   function draw() {

@@ -1,3 +1,4 @@
+{% set OVERLAY_COLOR = '#60a5fa' %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -118,6 +119,9 @@
   var winAutoAdvanceTimer = 0;
 
 {% include '_behavior_dsl.j2' %}
+  var _RT_W = CANVAS_W;
+  var _RT_H = CANVAS_H;
+{% include '_runtime.j2' %}
   function _ruleHook_loseLife()           { /* no lives in Sokoban */ }
   function _ruleHook_addPoints(pts)       { /* no score in Sokoban */ }
   function _ruleHook_destroyEnemy()       { /* no enemies */ }
@@ -321,7 +325,6 @@
     gameState = STATE_PLAYING;
   }
 
-  var keys = {};
   var keyHandled = {};
   document.addEventListener('keydown', function(e) {
     if (!keys[e.key]) {
@@ -363,7 +366,6 @@
     }
   });
   document.addEventListener('keyup', function(e) {
-    keys[e.key] = false;
     keyHandled[e.key] = false;
   });
 
@@ -510,22 +512,6 @@
     var levelName = currentLevelIdx === 0 ? 'Model' : 'Level ' + currentLevelIdx;
     var hint = 'Z:Undo  R:Reset  N/P:Level (' + levelName + ')';
     ctx.fillText(hint, (CANVAS_W - ctx.measureText(hint).width) / 2, 20);
-  }
-
-  function drawOverlay(title, subtitle, titleColor) {
-    ctx.fillStyle = 'rgba(0,0,0,0.78)';
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 38px Courier New';
-    ctx.fillStyle = titleColor || '#60a5fa';
-    ctx.fillText(title, CANVAS_W / 2, CANVAS_H / 2 - 30);
-    ctx.font = '16px Courier New';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(subtitle, CANVAS_W / 2, CANVAS_H / 2 + 10);
-    ctx.font = '14px Courier New';
-    ctx.fillStyle = '#aaa';
-    ctx.fillText('Moves: ' + moveCount + '  |  Enter: Next Level  N/P: Select', CANVAS_W / 2, CANVAS_H / 2 + 36);
-    ctx.textAlign = 'left';
   }
 
   function draw() {
